@@ -1,0 +1,75 @@
+{
+    "connection_cdb_string": "localhost/orcl.localdomain",
+    "connection_string": "localhost/ASDCO.localdomain",
+    "local_system_data_pump_dir": "\\\\10.1.18.35\\dumps",
+    "pdb_name": "ASDCO",
+    "pdb_name_cloned": "ASDCO_TEST",
+    "remote_system_data_pump_dir": "/u01/app/oracle/admin/orcl/dpdump",
+    "scheme": {
+        "1": {
+            "dump_file": "credit_data_pump",
+            "enabled": 1,
+            "export_dump_file": "C:/CI/m2/dmp/09012020_vr33-2-4_CREDIT4_202004131421.DMP",
+            "import_dump_file": "C:/CI/m2/dmp/09012020_vr33-2-4_CREDIT4_202004131421.DMP",
+            "name": "mtest1",
+            "password": "mtest1",
+            "scheme_name_in_dump": "credit4"
+        },
+        "2": {
+            "dump_file": "mtest1_ar",
+            "enabled": 1,
+            "export_dump_file": "C:/CI/m2/dmp/09012020_vr33-2-4_CREDIT4_202004131421.DMP",
+            "import_dump_file": "C:/CI/m2/dmp/credit4_ar_export.dmp",
+            "name": "mtest1_ar",
+            "password": "mtest1_ar",
+            "scheme_name_in_dump": "credit4_ar"
+        },
+        "3": {
+            "dump_file": "",
+            "enabled": 1,
+            "export_dump_file": "C:/CI/m2/dmp/09012020_vr33-2-4_CREDIT4_202004131421.DMP",
+            "import_dump_file": "",
+            "name": "deposit",
+            "password": "deposit",
+            "scheme_name_in_dump": "depozi4"
+        },
+        "4": {
+            "dump_file": "",
+            "enabled": 1,
+            "export_dump_file": "C:/CI/m2/dmp/09012020_vr33-2-4_CREDIT4_202004131421.DMP",
+            "import_dump_file": "C:/CI/m2/dmp/credit4_ar_export.dmp",
+            "name": "deposit_ar",
+            "password": "deposit_ar",
+            "scheme_name_in_dump": "credit4_at"
+        },
+        "5": {
+            "dump_file": "",
+            "enabled": 1,
+            "export_dump_file": "C:/CI/m2/dmp/09012020_vr33-2-4_CREDIT4_202004131421.DMP",
+            "import_dump_file": "",
+            "name": "deposit",
+            "password": "deposit",
+            "scheme_name_in_dump": "depozi4"
+        },
+        "6": {
+            "dump_file": "",
+            "enabled": 1,
+            "export_dump_file": "C:/CI/m2/dmp/09012020_vr33-2-4_CREDIT4_202004131421.DMP",
+            "import_dump_file": "C:/CI/m2/dmp/credit4_ar_export.dmp",
+            "name": "deposit_ar",
+            "password": "deposit_ar",
+            "scheme_name_in_dump": "credit4_at"
+        },
+        "7": {
+            "dump_file": "",
+            "enabled": 0,
+            "export_dump_file": "C:/CI/m2/dmp/09012020_vr33-2-4_CREDIT4_202004131421.DMP",
+            "import_dump_file": "",
+            "name": "jubula",
+            "password": "jubula",
+            "scheme_name_in_dump": "jubula_dev"
+        }
+    },
+    "sysdba_name_string": "c##devop",
+    "sysdba_password_string": "123devop"
+}

@@ -1,0 +1,52 @@
+{
+    "docker": {
+        "1": {
+            "enabled": 1,
+            "external_volume": "C:/docker/data_pump/asdco",
+            "image": "dko-13.local.domain:5000/store/oracle/database-enterprise:12.2.0.1",
+            "internal_volume": "/u01/app/oracle/admin/ORCL/dpdump",
+            "name": "oracle12asdco",
+            "options": "-e DB_MEMORY=6GB -p 1521:1521 --log-opt max-file=5 --log-opt max-size=10m",
+            "volumes": {
+                "1": {
+                    "enabled": 0,
+                    "intermediate_image": "dko-13.local.domain:5000/busybox",
+                    "mount_point": "/ORCL",
+                    "tar_file": "C:/docker/save/oracle12_ORCL_20200925.tar",
+                    "volume_name": "oracle12_ORCL"
+                },
+                "2": {
+                    "enabled": 1,
+                    "intermediate_image": "dko-13.local.domain:5000/busybox",
+                    "mount_point": "/u01",
+                    "tar_file": "C:/docker/save/oracle12_u01_20200925.tar",
+                    "volume_name": "oracle12_u01"
+                }
+            }
+        },
+        "2": {
+            "enabled": 0,
+            "external_volume": "C:/docker/data_pump/jubula",
+            "image": "dko-13.local.domain:5000/store/oracle/database-enterprise:12.2.0.1",
+            "internal_volume": "/u01/app/oracle/admin/ORCL/dpdump",
+            "name": "oracle12jubula",
+            "options": "-e DB_MEMORY=4GB -p 1521:1521 --log-opt max-file=5 --log-opt max-size=10m",
+            "volumes": {
+                "1": {
+                    "enabled": 0,
+                    "intermediate_image": "dko-13.local.domain:5000/busybox",
+                    "mount_point": "/ORCL",
+                    "tar_file": "C:/docker/save/oracle12jubula_ORCL.tar",
+                    "volume_name": "oracle12jubula_ORCL"
+                },
+                "2": {
+                    "enabled": 0,
+                    "intermediate_image": "dko-13.local.domain:5000/busybox",
+                    "mount_point": "/u01",
+                    "tar_file": "C:/docker/save/oracle12jubula_u01.tar",
+                    "volume_name": "oracle12jubula_u01"
+                }
+            }
+        }
+    }
+}

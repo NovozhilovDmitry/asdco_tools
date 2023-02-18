@@ -1,0 +1,56 @@
+{
+    "connection_cdb_string": "localhost/ORCL.localdomain",
+    "connection_string": "localhost/ASDCO.localdomain",
+    "local_system_data_pump_dir": "C:\\docker\\data_pump\\asdco",
+    "pdb_name": "ASDCO",
+    "pdb_name_cloned": "ASDCO_TEST",
+    "remote_system_data_pump_dir": "/u01/app/oracle/admin/ORCL/dpdump/asdco",
+    "scheme": {
+        "1": {
+            "dump_file": "credit_data_pump",
+            "enabled": 1,
+            "export_dump_file": "C:/docker/dump/credit_20200925_from_docker_old_39.DMP",
+            "import_dump_file": "",
+            "name": "credit",
+            "password": "credit",
+            "scheme_name_in_dump": "credit"
+        },
+        "2": {
+            "dump_file": "credit_ar",
+            "enabled": 1,
+            "export_dump_file": "",
+            "import_dump_file": "",
+            "name": "credit_ar",
+            "password": "credit_ar",
+            "scheme_name_in_dump": "credit4_ar"
+        },
+        "3": {
+            "dump_file": "",
+            "enabled": 1,
+            "export_dump_file": "C:/docker/dump/deposit_20200925_from_docker_old_38.DMP",
+            "import_dump_file": "C:/docker/dump/new_dep33_2_0_AUTO_STH_DEPOSIT_202007260130.DMP",
+            "name": "deposit",
+            "password": "deposit",
+            "scheme_name_in_dump": "AUTO_STH_DEPOSIT"
+        },
+        "4": {
+            "dump_file": "",
+            "enabled": 1,
+            "export_dump_file": "",
+            "import_dump_file": "",
+            "name": "deposit_ar",
+            "password": "deposit_ar",
+            "scheme_name_in_dump": "credit4_at"
+        },
+        "5": {
+            "dump_file": "",
+            "enabled": 0,
+            "import_dump_file": "",
+            "name": "jubula",
+            "password": "jubula",
+            "scheme_name_in_dump": "jubula_dev"
+        }
+    },
+    "sysdba_name_string": "c##devop",
+    "sysdba_password_string": "123devop"
+}
