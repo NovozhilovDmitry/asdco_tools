@@ -7,7 +7,7 @@ from myLogging import logger
 
 VERSION = '1.3.3'
 MAIN_WINDOW_TITLE = 'AsdcoTools'
-AUTHOR = r'ОУРиД РЦР Екатеринбург Д.Кожинов 2020'
+AUTHOR = r'РЦР Екатеринбург'
 TEMP_DIRECTORY = r'temp'
 RELEASE_NOTES_FILENAME = 'README.md'
 
