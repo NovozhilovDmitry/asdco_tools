@@ -1,6 +1,16 @@
 from tkinter import *
+from additions import MAIN_WINDOW_TITLE, VERSION
+import sys
+from PyQt6.QtWidgets import (QMainWindow,
+                             QWidget,
+                             QLabel,
+                             QGridLayout,
+                             QApplication,
+                             QPushButton,
+                             QLineEdit,
+                             QProgressBar)
+from PyQt6.QtCore import QRunnable, QThreadPool
 
-from additions import MAIN_WINDOW_TITLE, VERSION, load_config, dump_config
 
 WINDOW_GEOMETRY = r'1000x600'
 WINDOW_TITLE = VERSION
