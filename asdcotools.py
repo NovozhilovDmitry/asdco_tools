@@ -17,7 +17,7 @@ from oracle.OracleRemoteManagePDB import OracleRemoteManagePDB
 from oracle.OracleRemoteDeletePDB import OracleRemoteDeletePDB
 from oracle.OracleRemoteExpdp import OracleRemoteExpdp
 from oracle.OracleRemoteImpdp import OracleRemoteImpdp
-from StartWindow import WindowMain
+from StartWindow import Window
 from additions import load_config
 
 INTERVAL = 0.1
@@ -158,7 +158,7 @@ if __name__ == '__main__':
     menu = create_menu(root)
     root.update_task = loop.create_task(tkinter_update(root, loop))
     root.protocol("WM_DELETE_WINDOW", lambda: close_window(root))
-    window = WindowMain(root, loop, menu)
+    window = Window()
     try:
         logger.info('Is loop opened...')
         loop.run_forever()
