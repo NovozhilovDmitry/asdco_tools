@@ -107,14 +107,15 @@ def check_failure_result_expdp_oracle_scheme(log_string):
     return log_string.startswith(CHECK_ORACLE_ERROR_0) or log_string.startswith(CHECK_ORACLE_ERROR_1)
 
 
+# удаление схемы
 def get_string_delete_oracle_scheme(sysdba_name, sysdba_password, connection_string, scheme_name):
     """
         sqlplus c##devop/123devop@localhost/ASDCO.localdomain as sysdba
         drop user credit cascade;
     """
     script = f"drop user {scheme_name} cascade;"
-    logger.info(f"script={script}")
-    script_file = create_script_file(script)
+    logger.info(f"script={script}")  # запись в лог
+    script_file = create_script_file(script)  # создание sql файла
     cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
     cmd_mask_password = f'sqlplus.exe {sysdba_name}/********@{connection_string} as sysdba @{script_file}'
     logger.info(f"cmd={cmd_mask_password}")

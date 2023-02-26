@@ -1,6 +1,5 @@
 import os
 import sys
-import json
 import subprocess
 import time
 from myLogging import logger
@@ -11,35 +10,9 @@ AUTHOR = r'РЦР Екатеринбург'
 TEMP_DIRECTORY = r'temp'
 RELEASE_NOTES_FILENAME = 'README.md'
 
-
-# Чтение конфигурации из файла
-def load_config(file_json):
-    try:
-        if os.path.isfile(file_json):
-            logger.info(f'Load config file={file_json}')
-            with open(file_json, 'r') as file:
-                config = json.load(file)
-            logger.info(f'Load configuration from file={file_json} successfully.')
-            return config
-    except Exception as error:
-        logger.error(f'{file_json} contain wrong format: {error}!')
-        sys.exit(1)
-
-
-# Запись конфигурации в файл
-def dump_config(config, file_json):
-    try:
-        with open(file_json, 'w') as file:
-            json.dump(config, file, sort_keys=True, indent=4)
-        logger.info(f'Save configuration to file={file_json} successfully.')
-    except Exception as error:
-        logger.error(f'{file_json} contain wrong format: {error}!')
-        sys.exit(1)
-
-
 # Возвращает имя файла с проверкой, т.е. если он существует
-def get_real_file_name(file_name, enabled=1):
-    return file_name if not enabled or os.path.isfile(file_name) else ''
+# def get_real_file_name(file_name, enabled=1):
+#     return file_name if not enabled or os.path.isfile(file_name) else ''
 
 
 # Создание временного файла sql-скрипта для выполнения команд sqlplus
@@ -57,19 +30,6 @@ def create_script_file(script):
         logger.error(f'Cannot create temporary file={file_name} {error}!')
         sys.exit(1)
     return file_name
-
-
-# Проверка и создание внешнего каталога для монтирования внутреннего каталога
-# файловой системы докер-контейнера
-def check_external_volume(external_volume_directory):
-    try:
-        if not os.path.isdir(external_volume_directory):
-            os.makedirs(external_volume_directory)
-            logger.info(f'Create external_volume_directory={external_volume_directory}.')
-    except Exception as error:
-        logger.error(f'Cannot create external_volume_directory={external_volume_directory} {error}!')
-        return False
-    return True
 
 
 # Удаление временного файла sql-скрипта
