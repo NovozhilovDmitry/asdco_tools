@@ -14,7 +14,7 @@ from .integrityOracle12 import get_string_check_oracle_connection, \
     check_failure_result_create_data_pump_dir, \
     get_string_clone_pdb, \
     check_failure_result_clone_pdb
-from additions import MAIN_WINDOW_TITLE, VERSION, load_config, dump_config
+from additions import MAIN_WINDOW_TITLE
 from .OracleCommon import SysdbaUserStringGUISuit, ConnectionStringGUISuit, ConnectionCDBStringGUISuit
 
 WINDOW_TITLE = 'Oracle (remote). Управление PDB'
@@ -68,7 +68,7 @@ class OracleRemoteManagePDB(Frame):
         self.create_menu()
 
         self.config_file = config_file
-        self.config = load_config(self.config_file)
+        # self.config = load_config(self.config_file)
         self.oracle_execute_state = False
         self.auto_confirmation = IntVar(value=1)
         self.main_progressbar = Progressbar(self.window, length=200, mode='indeterminate', orient=HORIZONTAL)
@@ -351,10 +351,10 @@ class OracleRemoteManagePDB(Frame):
             self.config['pdb_name_cloned'] = self.pdbd_clone_gui_suit.field_pdb_name_cloned.get()
             self.config['sysdba_name_string'] = self.sysdba_user_string_gui_suit.field_sysdba_name_string.get()
             self.config['sysdba_password_string'] = self.sysdba_user_string_gui_suit.field_sysdba_password_string.get()
-        dump_config(self.config, self.config_file)
+    #     dump_config(self.config, self.config_file)
 
-    def _refresh(self):
-        self.config = load_config(self.config_file)
+    # def _refresh(self):
+    #     self.config = load_config(self.config_file)
 
 
 if __name__ == '__main__':

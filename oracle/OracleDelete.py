@@ -8,7 +8,7 @@ from .integrityOracle12 import get_string_delete_oracle_scheme, \
     check_success_result_delete_oracle_scheme, \
     get_string_show_oracle_users, \
     check_failure_result_show_oracle_users
-from additions import MAIN_WINDOW_TITLE, VERSION, load_config, dump_config
+from additions import MAIN_WINDOW_TITLE
 
 WINDOW_GEOMETRY = r'1100x930'
 WINDOW_TITLE = 'Oracle Удаление схем'
@@ -103,7 +103,7 @@ class OracleDelete(Frame):
         self.create_menu()
 
         self.config_file = config_file
-        self.config = load_config(self.config_file)
+        # self.config = load_config(self.config_file)
         self.oracle_execute_state = False
         self.force_delete = IntVar(value=0)
         self.shift_row_position = 1
@@ -297,7 +297,7 @@ class OracleDelete(Frame):
             if enabled:
                 self.config['scheme'][scheme_id]['name'] = item.field_scheme_name.get()
                 self.config['scheme'][scheme_id]['password'] = item.field_scheme_password.get()
-        dump_config(self.config, self.config_file)
+        # dump_config(self.config, self.config_file)
 
 
 if __name__ == '__main__':

@@ -14,7 +14,7 @@ from .integrityOracle12 import get_string_check_oracle_connection, \
     check_failure_result_show_pdbs, \
     get_string_enabled_oracle_asdco_options, \
     check_failure_enabled_oracle_asdco_options
-from additions import MAIN_WINDOW_TITLE, VERSION, load_config, dump_config, get_real_file_name
+from additions import MAIN_WINDOW_TITLE
 from .OracleCommon import SysdbaUserStringGUISuit, ConnectionStringGUISuit, ConnectionCDBStringGUISuit, SchemeGUISuit
 
 WINDOW_TITLE = 'Oracle (local). Импорт схем (data pump)'
@@ -46,7 +46,7 @@ class OracleImpdp(Frame):
         self.create_menu()
 
         self.config_file = config_file
-        self.config = load_config(self.config_file)
+        # self.config = load_config(self.config_file)
         self.oracle_execute_state = False
         self.auto_confirmation = IntVar(value=1)
         self.main_progressbar = Progressbar(self.window, length=200, mode='indeterminate', orient=HORIZONTAL)
@@ -341,10 +341,10 @@ class OracleImpdp(Frame):
                 self.config['scheme'][scheme_id]['name'] = item.field_scheme_name.get()
                 self.config['scheme'][scheme_id]['password'] = item.field_scheme_password.get()
                 self.config['scheme'][scheme_id]['dump_file'] = item.scheme_name_dump_file.get()
-        dump_config(self.config, self.config_file)
+        # dump_config(self.config, self.config_file)
 
     def _refresh(self):
-        self.config = load_config(self.config_file)
+        # self.config = load_config(self.config_file)
         self.scheme_gui_suits = self._load_scheme_gui_suits(self.scheme_gui_suits_start_row_position)
 
 
