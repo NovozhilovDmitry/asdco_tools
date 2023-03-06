@@ -324,7 +324,3 @@ class OracleCreate(Frame):
                 self.config['scheme'][scheme_id]['name'] = item.field_scheme_name.get()
                 self.config['scheme'][scheme_id]['password'] = item.field_scheme_password.get()
         # dump_config(self.config, self.config_file)
-
-
-if __name__ == '__main__':
-    pass

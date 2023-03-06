@@ -1,6 +1,6 @@
 import os
 import sys
-import subprocess
+# import subprocess
 import time
 from myLogging import logger
 
@@ -46,44 +46,40 @@ def delete_script_file(file_name):
 
 
 # Чтение конфигурации из файла
-def load_release_notes():
-    text = f"{MAIN_WINDOW_TITLE} {VERSION}\n{AUTHOR}\n\n"
-    try:
-        if os.path.isfile(RELEASE_NOTES_FILENAME):
-            logger.info(f'Load release notes file={RELEASE_NOTES_FILENAME}')
-            with open(RELEASE_NOTES_FILENAME, 'r', encoding='utf-8') as file:
-                text = text + file.read().encode('utf-8', errors='replace').decode('utf-8')
-            logger.info(f'Load release notes file={RELEASE_NOTES_FILENAME} successfully.')
-        return text
-    except Exception as error:
-        logger.error(f'Error in load_release_notes(): {error}!')
-        sys.exit(1)
+# def load_release_notes():
+#     text = f"{MAIN_WINDOW_TITLE} {VERSION}\n{AUTHOR}\n\n"
+#     try:
+#         if os.path.isfile(RELEASE_NOTES_FILENAME):
+#             logger.info(f'Load release notes file={RELEASE_NOTES_FILENAME}')
+#             with open(RELEASE_NOTES_FILENAME, 'r', encoding='utf-8') as file:
+#                 text = text + file.read().encode('utf-8', errors='replace').decode('utf-8')
+#             logger.info(f'Load release notes file={RELEASE_NOTES_FILENAME} successfully.')
+#         return text
+#     except Exception as error:
+#         logger.error(f'Error in load_release_notes(): {error}!')
+#         sys.exit(1)
 
 
 # Запуск команды в отдельном процессе
-def run_cmd(cmd, cmd_mask_password="", script="", encoding='windows-1251', shell=True):
-    if cmd_mask_password:
-        logger.info(f"cmd={cmd_mask_password}")
-    else:
-        logger.info(f"cmd={cmd}")
-    if script:
-        logger.info(f"script={script}")
-    process = subprocess.Popen(cmd,
-                               stdin=subprocess.PIPE,
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE,
-                               encoding=encoding,
-                               shell=shell)
-    if script:
-        stdout, stderr = process.communicate(input=script)
-    else:
-        stdout, stderr = process.communicate()
-    if stdout:
-        logger.info(f'stdout={stdout}')
-    if stderr:
-        logger.info(f'stderr={stderr}')
-    return process.returncode, stdout, stderr
-
-
-if __name__ == '__main__':
-    pass
+# def run_cmd(cmd, cmd_mask_password="", script="", encoding='windows-1251', shell=True):
+#     if cmd_mask_password:
+#         logger.info(f"cmd={cmd_mask_password}")
+#     else:
+#         logger.info(f"cmd={cmd}")
+#     if script:
+#         logger.info(f"script={script}")
+#     process = subprocess.Popen(cmd,
+#                                stdin=subprocess.PIPE,
+#                                stdout=subprocess.PIPE,
+#                                stderr=subprocess.PIPE,
+#                                encoding=encoding,
+#                                shell=shell)
+#     if script:
+#         stdout, stderr = process.communicate(input=script)
+#     else:
+#         stdout, stderr = process.communicate()
+#     if stdout:
+#         logger.info(f'stdout={stdout}')
+#     if stderr:
+#         logger.info(f'stderr={stderr}')
+#     return process.returncode, stdout, stderr

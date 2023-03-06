@@ -122,6 +122,3 @@ class SchemeGUISuit:
         self.label_3 = Label(self.window)
         self.label_3.grid(column=9, row=start_row_position + 1, sticky='W')
 
-
-if __name__ == '__main__':
-    pass
