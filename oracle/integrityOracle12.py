@@ -107,14 +107,15 @@ def check_failure_result_expdp_oracle_scheme(log_string):
     return log_string.startswith(CHECK_ORACLE_ERROR_0) or log_string.startswith(CHECK_ORACLE_ERROR_1)
 
 
+# удаление схемы
 def get_string_delete_oracle_scheme(sysdba_name, sysdba_password, connection_string, scheme_name):
     """
         sqlplus c##devop/123devop@localhost/ASDCO.localdomain as sysdba
         drop user credit cascade;
     """
     script = f"drop user {scheme_name} cascade;"
-    logger.info(f"script={script}")
-    script_file = create_script_file(script)
+    logger.info(f"script={script}")  # запись в лог
+    script_file = create_script_file(script)  # создание sql файла
     cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
     cmd_mask_password = f'sqlplus.exe {sysdba_name}/********@{connection_string} as sysdba @{script_file}'
     logger.info(f"cmd={cmd_mask_password}")
@@ -398,31 +399,30 @@ def check_failure_result_create_data_pump_dir(log_string):
     return log_string.startswith(CHECK_ORACLE_ERROR_0) or log_string.startswith(CHECK_ORACLE_ERROR_1)
 
 
-def get_string_show_pdbs(sysdba_name, sysdba_password, connection_string):
-    """
-        sqlplus c##devop/123devop@ORCL
-        ...
-        select name, GUID, open_mode, total_size from v$pdbs;
-    """
-    script = f"""column name format a30;
-column total_size format 99999999999999999999999999.99;
-set linesize 1000;
-select name, GUID, open_mode, total_size from v$pdbs;
-"""
-    logger.info(f"script={script}")
-    script_file = create_script_file(script)
-    cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
-    cmd_mask_password = f'sqlplus.exe {sysdba_name}/********@{connection_string} @{script_file}'
-    logger.info(f"cmd={cmd_mask_password}")
-    return cmd, cmd_mask_password
+# Показать базы данных
+# def get_string_show_pdbs(sysdba_name, sysdba_password, connection_string):
+#     """
+#         sqlplus c##devop/123devop@ORCL
+#         ...
+#         select name, GUID, open_mode, total_size from v$pdbs;
+#     """
+#     script = f"""column name format a30;
+# column total_size format 99999999999999999999999999.99;
+# set linesize 1000;
+# select name, GUID, open_mode, total_size from v$pdbs;
+# """
+#     script_file = create_script_file(script)
+#     cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+#     logger.info(f"Подключение к {connection_string} под пользователем {sysdba_name}")
+#     return cmd
 
 
-def check_failure_result_show_pdbs(log_string):
-    log_string = log_string.upper()
-    return log_string.startswith(CHECK_ORACLE_ERROR_0) or log_string.startswith(CHECK_ORACLE_ERROR_1)
+# def check_failure_result_show_pdbs(log_string):
+#     log_string = log_string.upper()
+#     return log_string.startswith(CHECK_ORACLE_ERROR_0) or log_string.startswith(CHECK_ORACLE_ERROR_1)
 
 
-if __name__ == '__main__':
-    connection_string = r"localhost/ASDCO.localdomain"
-    scheme_name = scheme_password = r'credit'
-    print(get_string_check_oracle_connection(connection_string, scheme_name, scheme_password))
+# if __name__ == '__main__':
+#     connection_string = r"localhost/ASDCO.localdomain"
+#     scheme_name = scheme_password = r'credit'
+#     print(get_string_check_oracle_connection(connection_string, scheme_name, scheme_password))

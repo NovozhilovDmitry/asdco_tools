@@ -4,18 +4,19 @@ from tkinter.ttk import Progressbar
 import asyncio
 
 from myLogging import logger
-from .integrityOracle12 import get_string_check_oracle_connection, \
-    check_success_result_check_oracle_connection, \
-    get_string_make_pdb_writable, \
-    check_failure_result_make_pdb_writable, \
-    get_string_show_pdbs, \
-    check_failure_result_show_pdbs, \
-    get_string_create_data_pump_dir, \
-    check_failure_result_create_data_pump_dir, \
-    get_string_clone_pdb, \
-    check_failure_result_clone_pdb
-from additions import MAIN_WINDOW_TITLE, VERSION, load_config, dump_config
+from .integrityOracle12 import (get_string_check_oracle_connection,
+                                check_success_result_check_oracle_connection,
+                                get_string_make_pdb_writable,
+                                check_failure_result_make_pdb_writable,
+                                # get_string_show_pdbs,
+                                # check_failure_result_show_pdbs,
+                                get_string_create_data_pump_dir,
+                                check_failure_result_create_data_pump_dir,
+                                get_string_clone_pdb,
+                                check_failure_result_clone_pdb)
+from additions import MAIN_WINDOW_TITLE
 from .OracleCommon import SysdbaUserStringGUISuit, ConnectionStringGUISuit, ConnectionCDBStringGUISuit
+
 
 WINDOW_TITLE = 'Oracle (remote). Управление PDB'
 WINDOW_GEOMETRY = r'1350x920'
@@ -68,7 +69,7 @@ class OracleRemoteManagePDB(Frame):
         self.create_menu()
 
         self.config_file = config_file
-        self.config = load_config(self.config_file)
+        # self.config = load_config(self.config_file)
         self.oracle_execute_state = False
         self.auto_confirmation = IntVar(value=1)
         self.main_progressbar = Progressbar(self.window, length=200, mode='indeterminate', orient=HORIZONTAL)
@@ -103,18 +104,6 @@ class OracleRemoteManagePDB(Frame):
         self.result_scrolledtext = scrolledtext.ScrolledText(self.window, width=140, height=30, wrap=WORD)
         self.result_scrolledtext.grid(column=0, columnspan=10, padx=PADX_LEFT_BORDER, pady=9,
                                       row=self.shift_row_position + 2, sticky='WE')
-
-    def create_menu(self):
-        self.window.config(menu=self.main_menu)
-        self.config_menu.add_command(label='Сохранить текущие настройки', command=self._save_current_config)
-        self.main_menu.add_cascade(label='Конфигурация', menu=self.config_menu)
-        self.pdb_menu.add_command(label='Показать существующие PDB',
-                                    command=self.show_pdbs)
-        self.pdb_menu.add_separator()
-        self.pdb_menu.add_command(label='Сделать исходную PDB writable', command=self.make_pdb_writable)
-        self.pdb_menu.add_command(label='Создать или заменить DATA_PUMP_DIR',
-                                    command=self.create_pdb_directory)
-        self.main_menu.insert_cascade(0, label='PDB', menu=self.pdb_menu)
 
 
     def check_connection(self):
@@ -155,18 +144,18 @@ class OracleRemoteManagePDB(Frame):
                                                                                    oracle_string_mask_password,
                                                                                    check_success_result_check_oracle_connection))
 
-    def show_pdbs(self):
-        connection_string = self.connection_cdb_string_gui_suit.field_connection_string.get()
-        sysdba_name = self.sysdba_user_string_gui_suit.field_sysdba_name_string.get()
-        sysdba_password = self.sysdba_user_string_gui_suit.field_sysdba_password_string.get()
-
-        oracle_string, oracle_string_mask_password = get_string_show_pdbs(sysdba_name,
-                                                                          sysdba_password,
-                                                                          connection_string)
-        self.loop.create_task(self.run_async_cmd_with_check_and_run_next_functions(oracle_string,
-                                                                                   oracle_string_mask_password,
-                                                                                   check_failure_result_show_pdbs,
-                                                                                   check_failure=True))
+    # def show_pdbs(self):
+    #     connection_string = self.connection_cdb_string_gui_suit.field_connection_string.get()
+    #     sysdba_name = self.sysdba_user_string_gui_suit.field_sysdba_name_string.get()
+    #     sysdba_password = self.sysdba_user_string_gui_suit.field_sysdba_password_string.get()
+    #
+    #     oracle_string, oracle_string_mask_password = get_string_show_pdbs(sysdba_name,
+    #                                                                       sysdba_password,
+    #                                                                       connection_string)
+    #     self.loop.create_task(self.run_async_cmd_with_check_and_run_next_functions(oracle_string,
+    #                                                                                oracle_string_mask_password,
+    #                                                                                check_failure_result_show_pdbs,
+    #                                                                                check_failure=True))
 
     def make_pdb_writable(self):
         connection_string = self.connection_cdb_string_gui_suit.field_connection_string.get()
@@ -351,10 +340,10 @@ class OracleRemoteManagePDB(Frame):
             self.config['pdb_name_cloned'] = self.pdbd_clone_gui_suit.field_pdb_name_cloned.get()
             self.config['sysdba_name_string'] = self.sysdba_user_string_gui_suit.field_sysdba_name_string.get()
             self.config['sysdba_password_string'] = self.sysdba_user_string_gui_suit.field_sysdba_password_string.get()
-        dump_config(self.config, self.config_file)
+    #     dump_config(self.config, self.config_file)
 
-    def _refresh(self):
-        self.config = load_config(self.config_file)
+    # def _refresh(self):
+    #     self.config = load_config(self.config_file)
 
 
 if __name__ == '__main__':
