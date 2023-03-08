@@ -1,6 +1,7 @@
 import os
 import time
 import sys
+import subprocess
 from myLogging import logger
 
 
@@ -58,3 +59,10 @@ select name, GUID, open_mode, total_size from v$pdbs;
 def check_failure_result_show_pdbs(log_string):
     log_string = log_string.upper()
     return log_string.startswith('ORA-0') or log_string.startswith('ORA-1')
+
+
+# SQL-PLUS
+# sql1 = sql1.encode()
+# result = subprocess.run(connect_odb, input=sql1, stdout=subprocess.PIPE)
+# result = result.stdout.decode('1251')
+# print(result)
