@@ -1,6 +1,8 @@
 import os
 import time
 import sys
+import shutil
+import pathlib
 import subprocess
 from myLogging import logger
 
@@ -25,44 +27,59 @@ def create_script_file(script):
     return file_name
 
 
-# Удаление временного файла sql-скрипта
-def delete_script_file(file_name):
+def delete_temp_directory():
+    cwd_temp_path = pathlib.Path.cwd().joinpath('temp')
     try:
-        if os.path.isfile(file_name):
-            os.remove(file_name)
-            logger.info(f'Delete temporary file={file_name}.')
-        else:
-            logger.info(f'Cannot delete temporary file={file_name} not exists.')
-    except Exception as error:
-        logger.error(f'Cannot delete temporary file={file_name} {error}!')
-    return True
+        shutil.rmtree(cwd_temp_path)
+        logger.info('директория temp удалена')
+    except FileNotFoundError:
+        pass
 
 
 # получить имена баз данных
 def get_string_show_pdbs(sysdba_name, sysdba_password, connection_string):
-    """
-        sqlplus c##devop/123devop@ORCL
-        ...
-        select name, GUID, open_mode, total_size from v$pdbs;
-    """
-    script = f"""column name format a30;
-column total_size format 99999999999999999999999999.99;
-set linesize 1000;
-select name, GUID, open_mode, total_size from v$pdbs;
-"""  # выпилить GUID и добавить дату + изменить оформление запроса
+    script = f"""set feedback off 
+set colsep "|"
+set pagesize 1000
+set linesize 1000
+set heading off
+column name format a25
+set NUMWIDTH 11
+set NUMFORMAT 99,999,999,999
+select name, creation_time, open_mode, total_size 
+from v$pdbs
+order by name;
+"""
     script_file = create_script_file(script)
-    cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
     logger.info(f"Подключение к {connection_string} под пользователем {sysdba_name}")
     return cmd
 
 
-def check_failure_result_show_pdbs(log_string):
-    log_string = log_string.upper()
-    return log_string.startswith('ORA-0') or log_string.startswith('ORA-1')
+def runnings_sqlplus_scripts_with_subprocess(cmd):  # переписать
+    result = subprocess.run(cmd, stdout=subprocess.PIPE).stdout
+    return result
 
 
-# SQL-PLUS
-# sql1 = sql1.encode()
-# result = subprocess.run(connect_odb, input=sql1, stdout=subprocess.PIPE)
-# result = result.stdout.decode('1251')
-# print(result)
+def formating_sqlplus_results(result):  # на вход проверить и список и строку
+    pdb_name_list = []
+    new_list = [i.replace('\t', '').replace('\r', '').replace('\n', '').replace(' ', '').split('|') for i in result if
+                i != '']
+    for i in new_list:
+        pdb_name_list.append(i[0])
+    return pdb_name_list
+
+
+# def check_failure_result_show_pdbs(log_string):
+#     log_string = log_string.upper()
+#     return log_string.startswith('ORA-0') or log_string.startswith('ORA-1')
+
+
+def get_string_check_oracle_connection(connection_string, scheme_name, scheme_password, connection_as_sysdba=False):
+    script = f"select 'СОЕДИНЕНИЕ ПРОВЕРЕНО УСПЕШНО' as result from dual;"
+    script_file = create_script_file(script)
+    if connection_as_sysdba:
+        cmd = f'echo exit | sqlplus.exe {scheme_name}/{scheme_password}@{connection_string} as sysdba @{script_file}'
+    else:
+        cmd = f'echo exit | sqlplus.exe {scheme_name}/{scheme_password}@{connection_string} @{script_file}'
+    return cmd
