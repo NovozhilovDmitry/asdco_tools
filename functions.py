@@ -52,16 +52,16 @@ order by name;
 """
     script_file = create_script_file(script)
     cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
-    logger.info(f"Подключение к {connection_string} под пользователем {sysdba_name}")
+    logger.info(f"Подключение к {connection_string}/ORCL под пользователем {sysdba_name}")
     return cmd
 
 
 def runnings_sqlplus_scripts_with_subprocess(cmd):  # переписать
-    result = subprocess.run(cmd, stdout=subprocess.PIPE).stdout
-    return result
+    result = subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('1251')
+    return result, result.split('\r\n')
 
 
-def formating_sqlplus_results(result):  # на вход проверить и список и строку
+def formating_sqlplus_results_and_return_pdb_names(result):  # на вход проверить и список и строку
     pdb_name_list = []
     new_list = [i.replace('\t', '').replace('\r', '').replace('\n', '').replace(' ', '').split('|') for i in result if
                 i != '']
@@ -70,16 +70,15 @@ def formating_sqlplus_results(result):  # на вход проверить и с
     return pdb_name_list
 
 
-# def check_failure_result_show_pdbs(log_string):
-#     log_string = log_string.upper()
-#     return log_string.startswith('ORA-0') or log_string.startswith('ORA-1')
-
-
-def get_string_check_oracle_connection(connection_string, scheme_name, scheme_password, connection_as_sysdba=False):
+def get_string_check_oracle_connection(connection_string,
+                                       scheme_name,
+                                       scheme_password,
+                                       pdb_name,
+                                       connection_as_sysdba=False):
     script = f"select 'СОЕДИНЕНИЕ ПРОВЕРЕНО УСПЕШНО' as result from dual;"
     script_file = create_script_file(script)
     if connection_as_sysdba:
-        cmd = f'echo exit | sqlplus.exe {scheme_name}/{scheme_password}@{connection_string} as sysdba @{script_file}'
+        cmd = f'echo exit | sqlplus.exe {scheme_name}/{scheme_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
     else:
-        cmd = f'echo exit | sqlplus.exe {scheme_name}/{scheme_password}@{connection_string} @{script_file}'
+        cmd = f'echo exit | sqlplus.exe {scheme_name}/{scheme_password}@{connection_string}/{pdb_name} @{script_file}'
     return cmd

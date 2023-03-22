@@ -18,7 +18,8 @@ from PyQt6.QtWidgets import (QMainWindow,
 from functions import (get_string_show_pdbs,
                        delete_temp_directory,
                        runnings_sqlplus_scripts_with_subprocess,
-                       get_string_check_oracle_connection)
+                       get_string_check_oracle_connection,
+                       formating_sqlplus_results_and_return_pdb_names)
 
 
 WINDOW_WIDTH = 1000
@@ -63,11 +64,15 @@ class Window(QMainWindow):
         self.layout = QWidget()
         self.main_layout = QVBoxLayout()
         self.top_grid_layout = QGridLayout()
-        self.settings = QSettings("config.ini", QSettings.Format.IniFormat)
+        self.tabs = QTabWidget()
+        self.tab_control = QWidget()
+        self.tab_schemas = QWidget()
         self.threadpool = QThreadPool()
+        self.settings = QSettings("config.ini", QSettings.Format.IniFormat)
         self.schemas = {'Схема_1': 0, 'Схема_2': 0, 'Схема_3': 0, 'Схема_4': 0, 'Схема_5': 0}
         self.header_layout()  # функция с добавленными элементами интерфейса для верхней части
-        self.footer_layout()  # функция с добавленными элементами интерфейса для нижней части
+        self.pdb_tab()  # функция с добавленными элементами вкладки pdb
+        self.schemas_tab()  # функция с добавленными элементами вкладки со схемами
         # добавление на макеты
         self.tab_schemas.setLayout(self.tab_schemas.layout)
         self.main_layout.addLayout(self.top_grid_layout)
@@ -90,25 +95,20 @@ class Window(QMainWindow):
         self.threadpool.start(worker)
 
     def fn_check_pdb(self, progress_callback):
-        pdb_list = []  # заполняется из БД
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
         oracle_string = get_string_show_pdbs(sysdba_name, sysdba_password, connection_string)
-        # print('echo exit | sqlplus.exe c##devop/123devop@192.168.1.1:1521 @script_file')
-        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        # print('echo exit | sqlplus.exe c##devop/123devop@192.168.1.1:1521/ORCL @script_file')
+        result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         self.input_main_area.append(result)
-        # for i in pdb_list:
-        #     if len(pdb_list) > 1:
-        #         win.list_pdb.addItem(i)
-        #     elif len(pdb_list) == 1:
-        #         win.list_pdb.addItem(pdb_list[0])
-        #     else:
-        #         pass
+        pdb_name_list = formating_sqlplus_results_and_return_pdb_names(list_result)
+        for i in pdb_name_list:
+            self.list_pdb.addItem(i)
         return "Функция 'ПОКАЗАТЬ СУЩЕСТВУЮЩИЕ PDB' выполнена успешно"
 
     def thread_check_connection(self):
-        logger.info("Функция 'ПРОВЕРИТЬ ПОДКЛЮЧЕНИЕ' запущена")
+        logger.info("Функция 'ПРОВЕРИТЬ ПОДКЛЮЧЕНИЕ на базе PDB' запущена")
         worker = Worker(self.fn_check_connect)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -117,20 +117,43 @@ class Window(QMainWindow):
     def fn_check_connect(self):
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
-        sschema_password = self.input_main_password.text()
-        # get_string_check_oracle_connection
+        schema_password = self.input_main_password.text()
+        pdb_name = self.list_pdb.currentText().upper()
+        oracle_string = get_string_check_oracle_connection(connection_string,
+                                                           schema_name,
+                                                           schema_password,
+                                                           pdb_name,
+                                                           connection_as_sysdba=False)
+        result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        self.input_main_area.append(result)
+        logger.info(list_result)
+
+    def thread_check_cdb_connection_as_sysdba(self):
+        logger.info("Функция 'ПРОВЕРИТЬ ПОДКЛЮЧЕНИЕ под ролью SYSDBA на базе CDB' запущена")
+        worker = Worker(self.fn_check_cdb_connect)  # функция, которая выполняется в потоке
+        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
+        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
+        self.threadpool.start(worker)
+
+    def fn_check_cdb_connect(self):
+        connection_string = self.line_main_connect.text()
+        schema_name = self.input_main_login.text()
+        schema_password = self.input_main_password.text()
+        pdb_name = 'ORCL'
+        oracle_string = get_string_check_oracle_connection(connection_string,
+                                                           schema_name,
+                                                           schema_password,
+                                                           pdb_name,
+                                                           connection_as_sysdba=True)
+        result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        self.input_main_area.append(result)
+        logger.info(list_result)
 
     def cloning_pdb(self):
-        text_for_area = 'Клонирование выбранной PDB'
-        success = 'УСПЕШНО'
-        self.input_main_area.append(text_for_area)
-        # self.input_main_area.setHtml(
-        #     f"""<font color='black'>{text_for_area}</font><br>
-        #     <font color='green'>{success}</font>""")
+        pass
 
     def deleting_pdb(self):
-        text_for_area = 'Удаление выбранной PDB провалено'
-        self.input_main_area.append(text_for_area)
+        pass
 
     def creating_schemas(self):
         checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
@@ -140,7 +163,7 @@ class Window(QMainWindow):
         checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
         self.input_schemas_area.setText(f'Удаление схем: {checked_schemas}')
 
-    def fn_checkbox_clicked(self, checked):
+    def fn_checkbox_clicked_for_schemas(self, checked):
         checkbox = self.sender()
         if checked:
             self.schemas[checkbox.text()] = 1
@@ -151,12 +174,13 @@ class Window(QMainWindow):
     def check_connect(self, n):
         logger.info("Функция 'ПРОВЕРИТЬ ПОДКЛЮЧЕНИЕ' запущена")
         worker = Worker(self.input_list_to_main_area)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.print_output)
-        worker.signals.finish.connect(self.thread_complete)
+        worker.signals.result.connect(self.thread_print_output)
+        worker.signals.finish.connect(self.thread_print_complete)
         self.threadpool.start(worker)
 
     def input_list_to_main_area(self, progress_callback):
-        return "Функция 'ПРОВЕРИТЬ ПОДКЛЮЧЕНИЕ' выполнена успешно"
+        # return "Функция 'ПРОВЕРИТЬ ПОДКЛЮЧЕНИЕ' выполнена успешно"
+        pass
 
     def closeEvent(self, event):
         """
@@ -252,60 +276,55 @@ class Window(QMainWindow):
         self.top_grid_layout.addWidget(self.list_pdb, 2, 1)
         self.top_grid_layout.addWidget(self.btn_current_pdb, 2, 2)
 
-    def footer_layout(self):
-        """
-        :return: добавление вкладок в интерфейсе со своими виджетами
-        """
-        self.tabs = QTabWidget()
-        self.tab_control = QWidget()
-        self.tab_schemas = QWidget()
+    def pdb_tab(self):
         self.tab_control.layout = QGridLayout()
-        self.tab_schemas.layout = QGridLayout()
         self.tabs.addTab(self.tab_control, "Управление PDB")
-        self.tabs.addTab(self.tab_schemas, "Управление схемами")
         self.input_newpdb = QLineEdit()
         self.btn_connect = QPushButton('Проверить подключение')
         self.btn_connect.clicked.connect(self.check_connect)
         self.btn_connect.setStyleSheet('width: 300')
         self.btn_clone_pdb = QPushButton('Клонировать PDB')  # тут же сделать pdb writeble
+        self.btn_clone_pdb.setEnabled(False)
         self.btn_clone_pdb.clicked.connect(self.cloning_pdb)
         self.btn_clone_pdb.setStyleSheet('width: 300')
         self.btn_delete_pdb = QPushButton('Удалить PDB')
         self.btn_delete_pdb.clicked.connect(self.deleting_pdb)
         self.input_main_area = QTextEdit()
-        # управление pdb
         self.tab_control.layout.addWidget(self.input_newpdb, 1, 0)
         self.tab_control.layout.addWidget(self.btn_connect, 1, 1)
         self.tab_control.layout.addWidget(self.btn_clone_pdb, 1, 2)
         self.tab_control.layout.addWidget(self.input_main_area, 2, 0, 1, 3)
         self.tab_control.layout.addWidget(self.btn_delete_pdb, 3, 0)
         self.tab_control.setLayout(self.tab_control.layout)
-        # управление схемами
+
+    def schemas_tab(self):
+        self.tab_schemas.layout = QGridLayout()
+        self.tabs.addTab(self.tab_schemas, "Управление схемами")
         self.input_schema1_name = QLineEdit()
         self.input_schema1_pass = QLineEdit()
         self.input_schema1_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.checkbox_schema1 = QCheckBox('Схема_1')
-        self.checkbox_schema1.stateChanged.connect(self.fn_checkbox_clicked)
+        self.checkbox_schema1.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
         self.input_schema2_name = QLineEdit()
         self.input_schema2_pass = QLineEdit()
         self.input_schema2_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.checkbox_schema2 = QCheckBox('Схема_2')
-        self.checkbox_schema2.stateChanged.connect(self.fn_checkbox_clicked)
+        self.checkbox_schema2.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
         self.input_schema3_name = QLineEdit()
         self.input_schema3_pass = QLineEdit()
         self.input_schema3_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.checkbox_schema3 = QCheckBox('Схема_3')
-        self.checkbox_schema3.stateChanged.connect(self.fn_checkbox_clicked)
+        self.checkbox_schema3.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
         self.input_schema4_name = QLineEdit()
         self.input_schema4_pass = QLineEdit()
         self.input_schema4_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.checkbox_schema4 = QCheckBox('Схема_4')
-        self.checkbox_schema4.stateChanged.connect(self.fn_checkbox_clicked)
+        self.checkbox_schema4.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
         self.input_schema5_name = QLineEdit()
         self.input_schema5_pass = QLineEdit()
         self.input_schema5_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.checkbox_schema5 = QCheckBox('Схема_5')
-        self.checkbox_schema5.stateChanged.connect(self.fn_checkbox_clicked)
+        self.checkbox_schema5.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
         self.btn_create_schema = QPushButton('Создать схему')
         self.btn_create_schema.clicked.connect(self.creating_schemas)
         self.btn_delete_schema = QPushButton('Удалить схему')

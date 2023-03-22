@@ -66,7 +66,7 @@ class OracleRemoteManagePDB(Frame):
         self.main_menu = Menu(self.window)
         self.config_menu = Menu(self.main_menu, tearoff=0)
         self.pdb_menu = Menu(self.main_menu, tearoff=0)
-        self.create_menu()
+        # self.create_menu()
 
         self.config_file = config_file
         # self.config = load_config(self.config_file)
@@ -75,15 +75,15 @@ class OracleRemoteManagePDB(Frame):
         self.main_progressbar = Progressbar(self.window, length=200, mode='indeterminate', orient=HORIZONTAL)
 
         self.shift_row_position = 1
-        self.sysdba_user_string_gui_suit = self._load_sysdba_user_string_gui_suit(self.shift_row_position)
+        # self.sysdba_user_string_gui_suit = self._load_sysdba_user_string_gui_suit(self.shift_row_position)
         self.shift_row_position += 1
-        self.connection_string_gui_suit = self._load_connection_string_gui_suit(self.shift_row_position)
+        # self.connection_string_gui_suit = self._load_connection_string_gui_suit(self.shift_row_position)
         self.label_1 = Label(self.window)
         self.label_1.grid(column=7, row=self.shift_row_position + 1, sticky='WE')
         self.shift_row_position += 1
-        self.connection_cdb_string_gui_suit = self._load_connection_cdb_string_gui_suit(self.shift_row_position)
+        # self.connection_cdb_string_gui_suit = self._load_connection_cdb_string_gui_suit(self.shift_row_position)
         self.shift_row_position += 3
-        self.pdbd_clone_gui_suit = self._load_pdbd_clone_gui_suit(self.shift_row_position)
+        # self.pdbd_clone_gui_suit = self._load_pdbd_clone_gui_suit(self.shift_row_position)
         self.shift_row_position += 1
         self.button_check_connection = Button(self.window,
                                               text='Проверка соединения',
@@ -127,7 +127,7 @@ class OracleRemoteManagePDB(Frame):
         if pdb_string not in connection_string:
             self.oracle_execute_state = False
             self.result_scrolledtext.insert(END, '\nОшибка в имени PDB!\nКоманда завершена с ошибкой.\n')
-            self._stop_main_progressbar()
+            # self._stop_main_progressbar()
             return
         else:
             self.result_scrolledtext.insert(END, '\nPDB указана верно.\n')
@@ -226,7 +226,7 @@ class OracleRemoteManagePDB(Frame):
         else:
             self.result_scrolledtext.insert(END, f'{cmd}\n')
         self.result_scrolledtext.see(END)
-        self._start_main_progressbar()
+        # self._start_main_progressbar()
         process = await asyncio.create_subprocess_shell(cmd,
                                                         stdin=asyncio.subprocess.PIPE,
                                                         stdout=asyncio.subprocess.PIPE,
@@ -268,7 +268,7 @@ class OracleRemoteManagePDB(Frame):
         logger.info(f"process.returncode={process.returncode}")
         if process.returncode == 0 and self.oracle_execute_state:
             self.result_scrolledtext.insert(END, 'Команда выполнена успешно\n')
-            self._save_current_config()
+            # self._save_current_config()
             if label_item:
                 label_item.configure(text=f"{label_text}")
             if run_next_function:
@@ -276,7 +276,7 @@ class OracleRemoteManagePDB(Frame):
         # Данный случай для команды expdp.exe
         elif process.returncode == 5 and self.oracle_execute_state:
             self.result_scrolledtext.insert(END, 'Команда выполнена с предупреждениями\n')
-            self._save_current_config()
+            # self._save_current_config()
             if label_item:
                 label_item.configure(text=f"{label_text}")
             if run_next_function:
@@ -286,60 +286,60 @@ class OracleRemoteManagePDB(Frame):
             if label_item:
                 label_item.configure(text=f"not {label_text}")
         self.result_scrolledtext.see(END)
-        self._stop_main_progressbar()
+        # self._stop_main_progressbar()
         return process.returncode == 0
 
-    def _start_main_progressbar(self):
-        self.main_progressbar.start(PROGRESSBAR_START_INTERVAL)
-        self.main_progressbar.grid(column=0, columnspan=2, padx=PADX_LEFT_BORDER, pady=18, sticky='WE')
-        self.button_check_connection.configure(state=DISABLED)
-        self.button_clone_pdb.configure(state=DISABLED)
-        self.button_make_writable.configure(state=DISABLED)
-
-    def _stop_main_progressbar(self):
-        self.main_progressbar.stop()
-        self.main_progressbar.grid_forget()
-        self.button_check_connection.configure(state=NORMAL)
-        if self.oracle_execute_state:
-            self.button_clone_pdb.configure(state=NORMAL)
-            self.button_make_writable.configure(state=NORMAL)
-        else:
-            self.button_clone_pdb.configure(state=DISABLED)
-            self.button_make_writable.configure(state=DISABLED)
-
-    def _load_connection_string_gui_suit(self, start_row_position):
-        return ConnectionStringGUISuit(self.window,
-                                       self.config['connection_string'],
-                                       start_row_position)
-
-    def _load_connection_cdb_string_gui_suit(self, start_row_position):
-        return ConnectionCDBStringGUISuit(self.window,
-                                          self.config['connection_cdb_string'],
-                                          self.config['pdb_name'],
-                                          self.config['remote_system_data_pump_dir'],
-                                          self.config['local_system_data_pump_dir'],
-                                          start_row_position)
-
-    def _load_pdbd_clone_gui_suit(self, start_row_position):
-        return PDBCloneGUISuit(self.window,
-                                          self.config['pdb_name'],
-                                          self.config['pdb_name_cloned'],
-                                          start_row_position)
-
-    def _load_sysdba_user_string_gui_suit(self, start_row_position):
-        return SysdbaUserStringGUISuit(self.window,
-                                       self.config['sysdba_name_string'],
-                                       self.config['sysdba_password_string'],
-                                       start_row_position)
-
-    def _save_current_config(self):
-        if self.oracle_execute_state:
-            self.config['connection_string'] = self.connection_string_gui_suit.field_connection_string.get()
-            self.config['connection_cdb_string'] = self.connection_cdb_string_gui_suit.field_connection_string.get()
-            self.config['pdb_name'] = self.pdbd_clone_gui_suit.field_pdb_name.get()
-            self.config['pdb_name_cloned'] = self.pdbd_clone_gui_suit.field_pdb_name_cloned.get()
-            self.config['sysdba_name_string'] = self.sysdba_user_string_gui_suit.field_sysdba_name_string.get()
-            self.config['sysdba_password_string'] = self.sysdba_user_string_gui_suit.field_sysdba_password_string.get()
+    # def _start_main_progressbar(self):
+    #     self.main_progressbar.start(PROGRESSBAR_START_INTERVAL)
+    #     self.main_progressbar.grid(column=0, columnspan=2, padx=PADX_LEFT_BORDER, pady=18, sticky='WE')
+    #     self.button_check_connection.configure(state=DISABLED)
+    #     self.button_clone_pdb.configure(state=DISABLED)
+    #     self.button_make_writable.configure(state=DISABLED)
+    #
+    # def _stop_main_progressbar(self):
+    #     self.main_progressbar.stop()
+    #     self.main_progressbar.grid_forget()
+    #     self.button_check_connection.configure(state=NORMAL)
+    #     if self.oracle_execute_state:
+    #         self.button_clone_pdb.configure(state=NORMAL)
+    #         self.button_make_writable.configure(state=NORMAL)
+    #     else:
+    #         self.button_clone_pdb.configure(state=DISABLED)
+    #         self.button_make_writable.configure(state=DISABLED)
+    #
+    # def _load_connection_string_gui_suit(self, start_row_position):
+    #     return ConnectionStringGUISuit(self.window,
+    #                                    self.config['connection_string'],
+    #                                    start_row_position)
+    #
+    # def _load_connection_cdb_string_gui_suit(self, start_row_position):
+    #     return ConnectionCDBStringGUISuit(self.window,
+    #                                       self.config['connection_cdb_string'],
+    #                                       self.config['pdb_name'],
+    #                                       self.config['remote_system_data_pump_dir'],
+    #                                       self.config['local_system_data_pump_dir'],
+    #                                       start_row_position)
+    #
+    # def _load_pdbd_clone_gui_suit(self, start_row_position):
+    #     return PDBCloneGUISuit(self.window,
+    #                                       self.config['pdb_name'],
+    #                                       self.config['pdb_name_cloned'],
+    #                                       start_row_position)
+    #
+    # def _load_sysdba_user_string_gui_suit(self, start_row_position):
+    #     return SysdbaUserStringGUISuit(self.window,
+    #                                    self.config['sysdba_name_string'],
+    #                                    self.config['sysdba_password_string'],
+    #                                    start_row_position)
+    #
+    # def _save_current_config(self):
+    #     if self.oracle_execute_state:
+    #         self.config['connection_string'] = self.connection_string_gui_suit.field_connection_string.get()
+    #         self.config['connection_cdb_string'] = self.connection_cdb_string_gui_suit.field_connection_string.get()
+    #         self.config['pdb_name'] = self.pdbd_clone_gui_suit.field_pdb_name.get()
+    #         self.config['pdb_name_cloned'] = self.pdbd_clone_gui_suit.field_pdb_name_cloned.get()
+    #         self.config['sysdba_name_string'] = self.sysdba_user_string_gui_suit.field_sysdba_name_string.get()
+    #         self.config['sysdba_password_string'] = self.sysdba_user_string_gui_suit.field_sysdba_password_string.get()
     #     dump_config(self.config, self.config_file)
 
     # def _refresh(self):
