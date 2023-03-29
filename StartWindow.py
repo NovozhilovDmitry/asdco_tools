@@ -99,7 +99,6 @@ class Window(QMainWindow):
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
         oracle_string = get_string_show_pdbs(sysdba_name, sysdba_password, connection_string)
-        # print('echo exit | sqlplus.exe c##devop/123devop@192.168.1.1:1521/ORCL @script_file')
         result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         self.input_main_area.append(result)
         pdb_name_list = formating_sqlplus_results_and_return_pdb_names(list_result)

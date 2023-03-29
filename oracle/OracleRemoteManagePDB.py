@@ -144,19 +144,6 @@ class OracleRemoteManagePDB(Frame):
                                                                                    oracle_string_mask_password,
                                                                                    check_success_result_check_oracle_connection))
 
-    # def show_pdbs(self):
-    #     connection_string = self.connection_cdb_string_gui_suit.field_connection_string.get()
-    #     sysdba_name = self.sysdba_user_string_gui_suit.field_sysdba_name_string.get()
-    #     sysdba_password = self.sysdba_user_string_gui_suit.field_sysdba_password_string.get()
-    #
-    #     oracle_string, oracle_string_mask_password = get_string_show_pdbs(sysdba_name,
-    #                                                                       sysdba_password,
-    #                                                                       connection_string)
-    #     self.loop.create_task(self.run_async_cmd_with_check_and_run_next_functions(oracle_string,
-    #                                                                                oracle_string_mask_password,
-    #                                                                                check_failure_result_show_pdbs,
-    #                                                                                check_failure=True))
-
     def make_pdb_writable(self):
         connection_string = self.connection_cdb_string_gui_suit.field_connection_string.get()
         pdb_name = self.pdbd_clone_gui_suit.field_pdb_name.get()
@@ -174,6 +161,7 @@ class OracleRemoteManagePDB(Frame):
                                                                                    label_item=self.label_1,
                                                                                    label_text="is writable now"))
 
+# зачем?
     def create_pdb_directory(self):
         connection_string = self.connection_cdb_string_gui_suit.field_connection_string.get()
         remote_system_data_pump_dir = self.connection_cdb_string_gui_suit.remote_system_data_pump_dir.get()
@@ -208,142 +196,6 @@ class OracleRemoteManagePDB(Frame):
                                                                                    label_item=self.label_1,
                                                                                    label_text="is writable now"))
 
-    # Запуск асинхронной команды в отдельном процессе:
-    # - Во время работы основной команды в асинхронном режиме запускается проверка stdout
-    #   для поиска ключевых выражений для определения успешености выполнения;
-    # - Если задан параметр run_next_function, то после успешного выполнения запускается
-    #   функция переданная в этом параметре.
-    async def run_async_cmd_with_check_and_run_next_functions(self,
-                                                              cmd,
-                                                              cmd_mask_password,
-                                                              check_function,
-                                                              run_next_function=None,
-                                                              label_item=None,
-                                                              label_text="",
-                                                              check_failure=False):
-        if cmd_mask_password:
-            self.result_scrolledtext.insert(END, f'{cmd_mask_password}\n')
-        else:
-            self.result_scrolledtext.insert(END, f'{cmd}\n')
-        self.result_scrolledtext.see(END)
-        # self._start_main_progressbar()
-        process = await asyncio.create_subprocess_shell(cmd,
-                                                        stdin=asyncio.subprocess.PIPE,
-                                                        stdout=asyncio.subprocess.PIPE,
-                                                        stderr=asyncio.subprocess.PIPE)
-        self.oracle_execute_state = check_failure
-
-        async def check_stdout():
-            while True:
-                data = await process.stdout.readline()
-                line = data.decode('cp1251')
-                if line:
-                    if check_failure:
-                        self.oracle_execute_state = self.oracle_execute_state and (not check_function(line))
-                    else:
-                        self.oracle_execute_state = self.oracle_execute_state or check_function(line)
-                    self.result_scrolledtext.insert(END, f'{line}')
-                    self.result_scrolledtext.see(END)
-                else:
-                    if process.returncode is None:
-                        await asyncio.sleep(INTERVAL)
-                    else:
-                        break
-
-        async def check_stderr():
-            while True:
-                data = await process.stderr.readline()
-                line = data.decode('cp1251')
-                if line:
-                    self.result_scrolledtext.insert(END, f'{line}')
-                    self.result_scrolledtext.see(END)
-                else:
-                    if process.returncode is None:
-                        await asyncio.sleep(INTERVAL)
-                    else:
-                        break
-
-        await asyncio.gather(check_stdout(), check_stderr())
-
-        logger.info(f"process.returncode={process.returncode}")
-        if process.returncode == 0 and self.oracle_execute_state:
-            self.result_scrolledtext.insert(END, 'Команда выполнена успешно\n')
-            # self._save_current_config()
-            if label_item:
-                label_item.configure(text=f"{label_text}")
-            if run_next_function:
-                run_next_function()
-        # Данный случай для команды expdp.exe
-        elif process.returncode == 5 and self.oracle_execute_state:
-            self.result_scrolledtext.insert(END, 'Команда выполнена с предупреждениями\n')
-            # self._save_current_config()
-            if label_item:
-                label_item.configure(text=f"{label_text}")
-            if run_next_function:
-                run_next_function()
-        else:
-            self.result_scrolledtext.insert(END, 'Команда завершена с ошибкой.\n')
-            if label_item:
-                label_item.configure(text=f"not {label_text}")
-        self.result_scrolledtext.see(END)
-        # self._stop_main_progressbar()
-        return process.returncode == 0
-
-    # def _start_main_progressbar(self):
-    #     self.main_progressbar.start(PROGRESSBAR_START_INTERVAL)
-    #     self.main_progressbar.grid(column=0, columnspan=2, padx=PADX_LEFT_BORDER, pady=18, sticky='WE')
-    #     self.button_check_connection.configure(state=DISABLED)
-    #     self.button_clone_pdb.configure(state=DISABLED)
-    #     self.button_make_writable.configure(state=DISABLED)
-    #
-    # def _stop_main_progressbar(self):
-    #     self.main_progressbar.stop()
-    #     self.main_progressbar.grid_forget()
-    #     self.button_check_connection.configure(state=NORMAL)
-    #     if self.oracle_execute_state:
-    #         self.button_clone_pdb.configure(state=NORMAL)
-    #         self.button_make_writable.configure(state=NORMAL)
-    #     else:
-    #         self.button_clone_pdb.configure(state=DISABLED)
-    #         self.button_make_writable.configure(state=DISABLED)
-    #
-    # def _load_connection_string_gui_suit(self, start_row_position):
-    #     return ConnectionStringGUISuit(self.window,
-    #                                    self.config['connection_string'],
-    #                                    start_row_position)
-    #
-    # def _load_connection_cdb_string_gui_suit(self, start_row_position):
-    #     return ConnectionCDBStringGUISuit(self.window,
-    #                                       self.config['connection_cdb_string'],
-    #                                       self.config['pdb_name'],
-    #                                       self.config['remote_system_data_pump_dir'],
-    #                                       self.config['local_system_data_pump_dir'],
-    #                                       start_row_position)
-    #
-    # def _load_pdbd_clone_gui_suit(self, start_row_position):
-    #     return PDBCloneGUISuit(self.window,
-    #                                       self.config['pdb_name'],
-    #                                       self.config['pdb_name_cloned'],
-    #                                       start_row_position)
-    #
-    # def _load_sysdba_user_string_gui_suit(self, start_row_position):
-    #     return SysdbaUserStringGUISuit(self.window,
-    #                                    self.config['sysdba_name_string'],
-    #                                    self.config['sysdba_password_string'],
-    #                                    start_row_position)
-    #
-    # def _save_current_config(self):
-    #     if self.oracle_execute_state:
-    #         self.config['connection_string'] = self.connection_string_gui_suit.field_connection_string.get()
-    #         self.config['connection_cdb_string'] = self.connection_cdb_string_gui_suit.field_connection_string.get()
-    #         self.config['pdb_name'] = self.pdbd_clone_gui_suit.field_pdb_name.get()
-    #         self.config['pdb_name_cloned'] = self.pdbd_clone_gui_suit.field_pdb_name_cloned.get()
-    #         self.config['sysdba_name_string'] = self.sysdba_user_string_gui_suit.field_sysdba_name_string.get()
-    #         self.config['sysdba_password_string'] = self.sysdba_user_string_gui_suit.field_sysdba_password_string.get()
-    #     dump_config(self.config, self.config_file)
-
-    # def _refresh(self):
-    #     self.config = load_config(self.config_file)
 
 
 if __name__ == '__main__':

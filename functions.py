@@ -38,7 +38,7 @@ def delete_temp_directory():
 
 # получить имена баз данных
 def get_string_show_pdbs(sysdba_name, sysdba_password, connection_string):
-    script = f"""set feedback off 
+    script = f"""set feedback off
 set colsep "|"
 set pagesize 1000
 set linesize 1000
@@ -46,12 +46,13 @@ set heading off
 column name format a25
 set NUMWIDTH 11
 set NUMFORMAT 99,999,999,999
-select name, creation_time, open_mode, total_size 
+select name, creation_time, open_mode, total_size
 from v$pdbs
 order by name;
-"""
+exit;
+    """
     script_file = create_script_file(script)
-    cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
     logger.info(f"Подключение к {connection_string}/ORCL под пользователем {sysdba_name}")
     return cmd
 
