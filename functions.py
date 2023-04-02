@@ -57,9 +57,12 @@ exit;
     return cmd
 
 
-def runnings_sqlplus_scripts_with_subprocess(cmd):  # переписать
+def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):  # переписать
     result = subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('1251')
-    return result, result.split('\r\n')
+    if return_split_result:
+        return result, result.split('\r\n')
+    else:
+        return result
 
 
 def formating_sqlplus_results_and_return_pdb_names(result):  # на вход проверить и список и строку
@@ -79,7 +82,62 @@ def get_string_check_oracle_connection(connection_string,
     script = f"select 'СОЕДИНЕНИЕ ПРОВЕРЕНО УСПЕШНО' as result from dual;"
     script_file = create_script_file(script)
     if connection_as_sysdba:
-        cmd = f'echo exit | sqlplus.exe {scheme_name}/{scheme_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
+        cmd = f'sqlplus.exe -s {scheme_name}/{scheme_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
     else:
-        cmd = f'echo exit | sqlplus.exe {scheme_name}/{scheme_password}@{connection_string}/{pdb_name} @{script_file}'
+        cmd = f'sqlplus.exe -s {scheme_name}/{scheme_password}@{connection_string}/{pdb_name} @{script_file}'
+    return cmd
+
+
+def get_string_clone_pdb(connection_string, sysdba_name, sysdba_password, pdb_name, pdb_name_cloned):
+    """
+        sqlplus c##devop/123devop@ORCL
+        set echo on;
+        set serveroutput on size unlimited;
+        execute pdb.clone_pdb('TEST_1', 'TEST_2');
+    """
+    # set echo exit будет работать?
+    script = f"""set echo on;
+set serveroutput on size unlimited;
+execute pdb.clone_pdb('{pdb_name}', '{pdb_name_cloned}');
+exit;
+"""
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    logger.info(f"Клонирование базы данных начато. Имя клонируемой PDB {pdb_name}, имя новой PDB {pdb_name_cloned}")
+    return cmd
+
+
+def get_string_make_pdb_writable(connection_string, sysdba_name, sysdba_password, pdb_name):
+    """
+        sqlplus c##devop/123devop@ORCL
+        set echo on;
+        set serveroutput on size unlimited;
+        execute pdb.make_read_write('TEST_1');
+    """
+    script = f"""set echo on;
+set serveroutput on size unlimited;
+execute pdb.make_read_write('{pdb_name}');
+exit;
+"""
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    logger.info(f"Сделать клонируемую PDB {pdb_name} доступной для записи")
+    return cmd
+
+
+def get_string_delete_pdb(connection_string, sysdba_name, sysdba_password, pdb_name):
+    """
+        sqlplus c##devop/123devop@ORCL
+        set echo on;
+        set serveroutput on size unlimited;
+        execute pdb.remove('TEST_2');
+    """
+    script = f"""set echo on;
+set serveroutput on size unlimited;
+execute pdb.remove('{pdb_name}');
+exit;
+"""
+    script_file = create_script_file(script)
+    cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    logger.info(f"Удаление PDB {pdb_name}")
     return cmd
