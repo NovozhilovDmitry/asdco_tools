@@ -36,7 +36,14 @@ def delete_temp_directory():
         pass
 
 
-# получить имена баз данных
+def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):  # переписать
+    result = subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('1251')
+    if return_split_result:
+        return result, result.split('\r\n')
+    else:
+        return result
+
+
 def get_string_show_pdbs(sysdba_name, sysdba_password, connection_string):
     script = f"""set feedback off
 set colsep "|"
@@ -57,14 +64,6 @@ exit;
     return cmd
 
 
-def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):  # переписать
-    result = subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('1251')
-    if return_split_result:
-        return result, result.split('\r\n')
-    else:
-        return result
-
-
 def formating_sqlplus_results_and_return_pdb_names(result):  # на вход проверить и список и строку
     pdb_name_list = []
     new_list = [i.replace('\t', '').replace('\r', '').replace('\n', '').replace(' ', '').split('|') for i in result if
@@ -75,16 +74,12 @@ def formating_sqlplus_results_and_return_pdb_names(result):  # на вход п�
 
 
 def get_string_check_oracle_connection(connection_string,
-                                       scheme_name,
-                                       scheme_password,
-                                       pdb_name,
-                                       connection_as_sysdba=False):
-    script = f"select 'СОЕДИНЕНИЕ ПРОВЕРЕНО УСПЕШНО' as result from dual;"
+                                       sysdba_name,
+                                       sysdba_password):
+    script = f"set echo on select 'SUCCESS' as result from dual; exit;"
     script_file = create_script_file(script)
-    if connection_as_sysdba:
-        cmd = f'sqlplus.exe -s {scheme_name}/{scheme_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
-    else:
-        cmd = f'sqlplus.exe -s {scheme_name}/{scheme_password}@{connection_string}/{pdb_name} @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
+    logger.info('Соединение проверено успешно')
     return cmd
 
 
@@ -95,14 +90,13 @@ def get_string_clone_pdb(connection_string, sysdba_name, sysdba_password, pdb_na
         set serveroutput on size unlimited;
         execute pdb.clone_pdb('TEST_1', 'TEST_2');
     """
-    # set echo exit будет работать?
     script = f"""set echo on;
 set serveroutput on size unlimited;
 execute pdb.clone_pdb('{pdb_name}', '{pdb_name_cloned}');
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
     logger.info(f"Клонирование базы данных начато. Имя клонируемой PDB {pdb_name}, имя новой PDB {pdb_name_cloned}")
     return cmd
 
@@ -120,7 +114,7 @@ execute pdb.make_read_write('{pdb_name}');
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
     logger.info(f"Сделать клонируемую PDB {pdb_name} доступной для записи")
     return cmd
 
@@ -138,6 +132,11 @@ execute pdb.remove('{pdb_name}');
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
     logger.info(f"Удаление PDB {pdb_name}")
     return cmd
+
+
+def runnings_check_connect(cmd):  # переписать
+    result = subprocess.run(cmd).stdout.decode('1251')
+    return result

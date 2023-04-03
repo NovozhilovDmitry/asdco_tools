@@ -1,6 +1,7 @@
 import sys
 import traceback
 from myLogging import logger
+from PyQt6.QtGui import QTextCursor
 from PyQt6.QtCore import QRunnable, QThreadPool, QSettings, QObject, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QMainWindow,
                              QWidget,
@@ -21,7 +22,8 @@ from functions import (get_string_show_pdbs,
                        formating_sqlplus_results_and_return_pdb_names,
                        get_string_clone_pdb,
                        get_string_make_pdb_writable,
-                       get_string_delete_pdb)
+                       get_string_delete_pdb,
+                       runnings_check_connect)
 
 
 WINDOW_WIDTH = 1000
@@ -61,7 +63,7 @@ class Worker(QRunnable):
 class Window(QMainWindow):
     def __init__(self):
         super(Window, self).__init__()
-        self.setWindowTitle("ASDCO tools с вкладками")  # заголовок главного окна
+        self.setWindowTitle("ASDCO TOOLS")  # заголовок главного окна
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.layout = QWidget()
         self.main_layout = QVBoxLayout()
@@ -101,6 +103,7 @@ class Window(QMainWindow):
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
         oracle_string = get_string_show_pdbs(sysdba_name, sysdba_password, connection_string)
+        print(oracle_string)
         result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string, return_split_result=True)
         self.input_main_area.append(result)
         self.pdb_name_list = formating_sqlplus_results_and_return_pdb_names(list_result)
@@ -117,16 +120,13 @@ class Window(QMainWindow):
 
     def fn_check_connect(self):
         connection_string = self.line_main_connect.text()
-        schema_name = self.input_main_login.text()
-        schema_password = self.input_main_password.text()
-        cdb_name = '/ORCL'
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
         oracle_string = get_string_check_oracle_connection(connection_string,
-                                                           schema_name,
-                                                           schema_password,
-                                                           cdb_name,
-                                                           connection_as_sysdba=True)
-        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+                                                           sysdba_name,
+                                                           sysdba_password)
+        result = runnings_check_connect(oracle_string)
         self.input_main_area.append(result + '\n строка 128 (а если ошибка?)')
         logger.info(result)
         if pdb_name in self.pdb_name_list:
@@ -140,12 +140,13 @@ class Window(QMainWindow):
         elif self.list_pdb.currentText() == '':
             self.input_main_area.append('Имя PDB не указано')
             logger.info('Имя PDB не указано. Кнопка осталась заблокирована')
-        elif self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
-            self.input_main_area.append('Указанная PDB и существующая база данных идентичны')
-            logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
         else:
             self.input_main_area.append('Непредвиденная ошибка. Что-то пошло не так:(')
             logger.info('Непредвиденная ошибка. Что-то пошло не так:( Кнопка осталась заблокированной')
+        if self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
+            self.input_main_area.append('Указанная PDB и существующая база данных идентичны')
+            logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
+        return "Функция 'ПРОВЕРКА СОЕДИНЕНИЯ С БД' выполнена успешно"
 
     def thread_cloning_pdb(self):
         logger.info("Функция 'КЛОНИРОВАНИЕ PDB' запущена")
@@ -167,6 +168,7 @@ class Window(QMainWindow):
                                              pdb_name_clone)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         self.input_main_area.append('Результаты клонирования PDB \n' + result)
+        return f"Клонирование PDB завершено. Имя новой PDB {pdb_name_clone}"
 
     def thread_deleting_pdb(self):
         logger.info("Функция 'УДАЛИТЬ PDB' запущена")
@@ -186,6 +188,7 @@ class Window(QMainWindow):
                                               pdb_name)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         self.input_main_area.append('Результаты удаления PDB \n' + result)
+        return f"{pdb_name} удалена"
 
     def thread_make_pdb_writable(self):
         logger.info("Функция 'СДЕЛАТЬ PDB ДОСТУПНОЙ ДЛЯ ЗАПИСИ' запущена")
@@ -194,7 +197,7 @@ class Window(QMainWindow):
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
         self.threadpool.start(worker)
 
-    def fn_writable_pdb(self):
+    def fn_writable_pdb(self, progress_callback):
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
@@ -204,7 +207,9 @@ class Window(QMainWindow):
                                                      schema_password,
                                                      pdb_name)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        self.input_main_area.moveCursor(QTextCursor.atEnd)
         self.input_main_area.append('PDB переведена в режим доступной для записи \n' + result)
+        return f'PDB {pdb_name} переведена в режим доступной для записи'
 
     def creating_schemas(self):
         checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
