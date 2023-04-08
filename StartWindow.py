@@ -1,7 +1,6 @@
 import sys
 import traceback
 from myLogging import logger
-from PyQt6.QtGui import QTextCursor
 from PyQt6.QtCore import QRunnable, QThreadPool, QSettings, QObject, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QMainWindow,
                              QWidget,
@@ -14,7 +13,12 @@ from PyQt6.QtWidgets import (QMainWindow,
                              QCheckBox,
                              QComboBox,
                              QVBoxLayout,
-                             QTabWidget)
+                             QTabWidget,
+                             QTableWidget,
+                             QTableWidgetItem,
+                             QHeaderView,
+                             QPlainTextEdit,
+                             QProgressBar)
 from functions import (get_string_show_pdbs,
                        delete_temp_directory,
                        runnings_sqlplus_scripts_with_subprocess,
@@ -23,7 +27,8 @@ from functions import (get_string_show_pdbs,
                        get_string_clone_pdb,
                        get_string_make_pdb_writable,
                        get_string_delete_pdb,
-                       runnings_check_connect)
+                       runnings_check_connect,
+                       format_list_result)
 
 
 WINDOW_WIDTH = 1000
@@ -85,13 +90,23 @@ class Window(QMainWindow):
         self.setCentralWidget(self.layout)
         self.initialization_settings()  # вызов функции с инициализацией сохраненных значений
 
-    def thread_print_output(self, s):  # слот для сигнала из потока о завершении выполнения функции
+    def thread_print_output(self, s):
+        """
+        :param s: передается результат из вызванной функции потока
+        :return: слот для сигнала из потока о завершении выполнения функции
+        """
         logger.info(s)
 
-    def thread_print_complete(self):  # слот для сигнала о завершении потока
+    def thread_print_complete(self):
+        """
+        :return: слот для сигнала о завершении потока
+        """
         logger.info(self)
 
     def thread_check_pdb(self):
+        """
+        :return: передача функции по проверки pdb в отдельном потоке
+        """
         logger.info("Функция 'ПОКАЗАТЬ СУЩЕСТВУЮЩИЕ PDB' запущена")
         worker = Worker(self.fn_check_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
@@ -99,98 +114,154 @@ class Window(QMainWindow):
         self.threadpool.start(worker)
 
     def fn_check_pdb(self, progress_callback):
+        """
+        :param progress_callback: передача результатов из класса потока
+        :return: передает сообщение в функцию thread_print_output
+        """
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
         oracle_string = get_string_show_pdbs(sysdba_name, sysdba_password, connection_string)
-        print(oracle_string)
         result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string, return_split_result=True)
-        self.input_main_area.append(result)
+        self.input_main_area.appendPlainText(result)
         self.pdb_name_list = formating_sqlplus_results_and_return_pdb_names(list_result)
+        self.table.setRowCount(len(self.pdb_name_list))
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(['Имя', 'Дата создания', 'Статус', 'Размер'])
+        new_list = format_list_result(list_result)
+        row = 0
+        for i in new_list:
+            self.table.setItem(row, 0, QTableWidgetItem(i[0]))
+            self.table.setItem(row, 1, QTableWidgetItem(i[1]))
+            self.table.setItem(row, 2, QTableWidgetItem(i[2]))
+            self.table.setItem(row, 3, QTableWidgetItem(i[3]))
+            row += 1
+        self.list_pdb.clear()
         for i in self.pdb_name_list:
             self.list_pdb.addItem(i)
+        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
         return "Функция 'ПОКАЗАТЬ СУЩЕСТВУЮЩИЕ PDB' выполнена успешно"
 
     def thread_check_connection(self):
+        """
+        :return: передача функции по ппроверке подключения к cdb в отдельном потоке
+        """
         logger.info("Функция 'ПРОВЕРИТЬ ПОДКЛЮЧЕНИЕ под ролью SYSDBA на базе CDB запущена, на базе PDB' запущена")
         worker = Worker(self.fn_check_connect)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
         self.threadpool.start(worker)
 
-    def fn_check_connect(self):
+    def fn_check_connect(self, progress_callback):
+        """
+        :param progress_callback: передача результатов из класса потока
+        :return: передает сообщение в функцию thread_print_output
+        """
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
-        pdb_name = self.list_pdb.currentText().upper()
-        oracle_string = get_string_check_oracle_connection(connection_string,
-                                                           sysdba_name,
-                                                           sysdba_password)
-        result = runnings_check_connect(oracle_string)
-        self.input_main_area.append(result + '\n строка 128 (а если ошибка?)')
+        oracle_string, sql = get_string_check_oracle_connection(connection_string,
+                                                                sysdba_name,
+                                                                sysdba_password)
+        result = runnings_check_connect(oracle_string, sql)
+        self.input_main_area.appendPlainText(result)
+        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
         logger.info(result)
-        if pdb_name in self.pdb_name_list:
-            self.input_main_area.append('Указанная база данных ПРИСУТСТВУЕТ в списке')
-            self.btn_clone_pdb.setEnabled(True)
-            logger.info('Указанная база данных ПРИСУТСТВУЕТ в списке. Кнопка разблокирована')
-        elif pdb_name not in self.pdb_name_list:
-            self.input_main_area.append('Указанная база данных ОТСУТСТВУЕТ в списке. Это новая PDB?')
-            self.btn_clone_pdb.setEnabled(True)
-            logger.info('Указанная база данных ОТСУТСТВУЕТ в списке. Это новая PDB? Кнопка разблокирована')
-        elif self.list_pdb.currentText() == '':
-            self.input_main_area.append('Имя PDB не указано')
+        if self.input_newpdb.text().upper() == '':
+            self.input_main_area.appendPlainText('Имя PDB не указано')
             logger.info('Имя PDB не указано. Кнопка осталась заблокирована')
-        else:
-            self.input_main_area.append('Непредвиденная ошибка. Что-то пошло не так:(')
-            logger.info('Непредвиденная ошибка. Что-то пошло не так:( Кнопка осталась заблокированной')
-        if self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
-            self.input_main_area.append('Указанная PDB и существующая база данных идентичны')
+        elif self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
+            self.input_main_area.appendPlainText('Указанная PDB и существующая база данных идентичны')
             logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
+        elif self.input_newpdb.text().upper() in self.pdb_name_list:
+            self.input_main_area.appendPlainText('Указанная база данных ПРИСУТСТВУЕТ в списке')
+            self.btn_clone_pdb.setEnabled(True)
+            self.btn_delete_pdb.setEnabled(True)
+            self.btn_make_pdb_for_write.setEnabled(True)
+            logger.info('Указанная база данных ПРИСУТСТВУЕТ в списке. Кнопка разблокирована')
+        elif self.input_newpdb.text().upper() not in self.pdb_name_list:
+            self.input_main_area.appendPlainText('Указанная база данных ОТСУТСТВУЕТ в списке. Это новая PDB?')
+            self.btn_clone_pdb.setEnabled(True)
+            self.btn_delete_pdb.setEnabled(True)
+            self.btn_make_pdb_for_write.setEnabled(True)
+            logger.info('Указанная база данных ОТСУТСТВУЕТ в списке. Это новая PDB? Кнопка разблокирована')
+        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
         return "Функция 'ПРОВЕРКА СОЕДИНЕНИЯ С БД' выполнена успешно"
 
     def thread_cloning_pdb(self):
+        """
+        :return: передача функции клонирования pdb в отдельном потоке
+        """
         logger.info("Функция 'КЛОНИРОВАНИЕ PDB' запущена")
         worker = Worker(self.fn_cloning_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
         self.threadpool.start(worker)
 
-    def fn_cloning_pdb(self):
+    def fn_cloning_pdb(self, progress_callback):
+        """
+        :param progress_callback: передача результатов из класса потока
+        :return: передает сообщение в функцию thread_print_output
+        """
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
         pdb_name_clone = self.input_newpdb.text().upper()
+        self.btn_clone_pdb.setEnabled(False)
+        self.btn_delete_pdb.setEnabled(False)
+        self.btn_make_pdb_for_write.setEnabled(False)
         oracle_string = get_string_clone_pdb(connection_string,
                                              schema_name,
                                              schema_password,
                                              pdb_name,
                                              pdb_name_clone)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        self.input_main_area.append('Результаты клонирования PDB \n' + result)
+        self.btn_clone_pdb.setEnabled(True)
+        self.btn_delete_pdb.setEnabled(True)
+        self.btn_make_pdb_for_write.setEnabled(True)
+        self.input_main_area.appendPlainText(result)
+        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
         return f"Клонирование PDB завершено. Имя новой PDB {pdb_name_clone}"
 
     def thread_deleting_pdb(self):
+        """
+        :return: передача функции удаления pdb в отдельном потоке
+        """
         logger.info("Функция 'УДАЛИТЬ PDB' запущена")
         worker = Worker(self.fn_deleting_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
         self.threadpool.start(worker)
 
-    def fn_deleting_pdb(self):  # delete comment
+    def fn_deleting_pdb(self, progress_callback):
+        """
+        :param progress_callback: передача результатов из класса потока
+        :return: передает сообщение в функцию thread_print_output
+        """
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
         pdb_name = self.input_newpdb.text().upper()
+        self.btn_clone_pdb.setEnabled(False)
+        self.btn_delete_pdb.setEnabled(False)
+        self.btn_make_pdb_for_write.setEnabled(False)
         oracle_string = get_string_delete_pdb(connection_string,
                                               schema_name,
                                               schema_password,
                                               pdb_name)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        self.input_main_area.append('Результаты удаления PDB \n' + result)
+        self.btn_clone_pdb.setEnabled(True)
+        self.btn_delete_pdb.setEnabled(True)
+        self.btn_make_pdb_for_write.setEnabled(True)
+        self.input_main_area.appendPlainText(result)
+        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
         return f"{pdb_name} удалена"
 
     def thread_make_pdb_writable(self):
+        """
+        :return: передача функции по переводу pdb из режима только для чтения в отдельном потоке
+        """
         logger.info("Функция 'СДЕЛАТЬ PDB ДОСТУПНОЙ ДЛЯ ЗАПИСИ' запущена")
         worker = Worker(self.fn_writable_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
@@ -198,6 +269,10 @@ class Window(QMainWindow):
         self.threadpool.start(worker)
 
     def fn_writable_pdb(self, progress_callback):
+        """
+        :param progress_callback: передача результатов из класса потока
+        :return: передает сообщение в функцию thread_print_output
+        """
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
@@ -207,8 +282,8 @@ class Window(QMainWindow):
                                                      schema_password,
                                                      pdb_name)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        self.input_main_area.moveCursor(QTextCursor.atEnd)
-        self.input_main_area.append('PDB переведена в режим доступной для записи \n' + result)
+        self.input_main_area.appendPlainText('PDB переведена в режим доступной для записи \n' + result)
+        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
         return f'PDB {pdb_name} переведена в режим доступной для записи'
 
     def creating_schemas(self):
@@ -223,7 +298,6 @@ class Window(QMainWindow):
         checkbox = self.sender()
         if checked:
             self.schemas[checkbox.text()] = 1
-            print(checkbox)
         else:
             self.schemas[checkbox.text()] = 0
 
@@ -236,6 +310,7 @@ class Window(QMainWindow):
         self.settings.setValue('login', self.input_main_login.text())
         self.settings.setValue('connectline', self.line_main_connect.text())
         self.settings.setValue('password', self.input_main_password.text())
+        self.settings.setValue('PDB_name', self.list_pdb.currentText())
         # настройки вкладки со схемами
         self.settings.setValue('credit1_schemaname', self.input_schema1_name.text())
         self.settings.setValue('deposit1_schemaname', self.input_schema2_name.text())
@@ -266,6 +341,7 @@ class Window(QMainWindow):
         self.input_main_login.setText(self.settings.value('login'))
         self.input_main_password.setText(self.settings.value('password'))
         self.line_main_connect.setText(self.settings.value('connectline'))
+        self.list_pdb.setCurrentText(self.settings.value('PDB_name'))
         # вкладка со схемами
         self.input_schema1_name.setText(self.settings.value('credit1_schemaname'))
         self.input_schema2_name.setText(self.settings.value('deposit1_schemaname'))
@@ -322,9 +398,13 @@ class Window(QMainWindow):
         self.top_grid_layout.addWidget(self.btn_current_pdb, 2, 2)
 
     def pdb_tab(self):
+        """
+        :return: добавление виджетов на вкладку с pdb
+        """
         self.tab_control.layout = QGridLayout()
         self.tabs.addTab(self.tab_control, "Управление PDB")
         self.input_newpdb = QLineEdit()
+        self.input_newpdb.setPlaceholderText('Введите имя PDB')
         self.btn_connect = QPushButton('Проверить подключение')
         self.btn_connect.clicked.connect(self.thread_check_connection)
         self.btn_connect.setStyleSheet('width: 300')
@@ -334,18 +414,29 @@ class Window(QMainWindow):
         self.btn_clone_pdb.setStyleSheet('width: 300')
         self.btn_delete_pdb = QPushButton('Удалить PDB')
         self.btn_delete_pdb.clicked.connect(self.thread_deleting_pdb)
+        self.btn_delete_pdb.setEnabled(False)
         self.btn_make_pdb_for_write = QPushButton('Сделать PDB доступной для записи')
         self.btn_make_pdb_for_write.clicked.connect(self.thread_make_pdb_writable)
-        self.input_main_area = QTextEdit()
+        self.btn_make_pdb_for_write.setEnabled(False)
+        self.input_main_area = QPlainTextEdit()
+        self.input_main_area.setFixedSize(WINDOW_WIDTH, 100)
+        self.progressbar = QProgressBar()
+        self.table = QTableWidget()
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tab_control.layout.addWidget(self.input_newpdb, 1, 0)
         self.tab_control.layout.addWidget(self.btn_connect, 1, 1)
         self.tab_control.layout.addWidget(self.btn_clone_pdb, 1, 2)
-        self.tab_control.layout.addWidget(self.input_main_area, 2, 0, 1, 3)
-        self.tab_control.layout.addWidget(self.btn_delete_pdb, 3, 0)
-        self.tab_control.layout.addWidget(self.btn_make_pdb_for_write, 3, 2)
+        self.tab_control.layout.addWidget(self.table, 2, 0, 1, 3)
+        self.tab_control.layout.addWidget(self.btn_make_pdb_for_write, 3, 0)
+        self.tab_control.layout.addWidget(self.progressbar, 3, 1)
+        self.tab_control.layout.addWidget(self.btn_delete_pdb, 3, 2)
+        self.tab_control.layout.addWidget(self.input_main_area, 5, 0, 1, 3)
         self.tab_control.setLayout(self.tab_control.layout)
 
     def schemas_tab(self):
+        """
+        :return: добавление виджетов на вкладку с схемами
+        """
         self.tab_schemas.layout = QGridLayout()
         self.tabs.addTab(self.tab_schemas, "Управление схемами")
         self.input_schema1_name = QLineEdit()
@@ -404,3 +495,10 @@ if __name__ == '__main__':
     win = Window()
     win.show()
     sys.exit(app.exec())
+
+# добавить progressbar в выполнение функции
+# сделать дополнительное поле в схемах (там будет путь к дампам)
+# рядом с полем (или в поле) добавить иконку для вызова диалогового окна к дампам
+# сделать функцию (или 2) для определения формата дампа -> если архив, то разархивировать, иначе просто берем дамп
+# падает программа если не проверены бд и не заполнен список
+# после клонирования (удаления?) почему-то выводится ошибка. посмотреть номер ошибки и текст

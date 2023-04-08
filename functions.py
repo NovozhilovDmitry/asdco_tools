@@ -10,8 +10,11 @@ from myLogging import logger
 TEMP_DIRECTORY = r'temp'  # записать в настройки и дать возможность менять директорию по умолчанию
 
 
-# создание файла sql-скрипта
 def create_script_file(script):
+    """
+    :param script: sql скрипт из функций
+    :return: создает временный файл с sql запросом
+    """
     directory_name = os.path.join(os.getcwd(), TEMP_DIRECTORY)
     file_name = os.path.join(os.getcwd(), TEMP_DIRECTORY, f"script_{time.time_ns()}.sql")
     try:
@@ -28,6 +31,9 @@ def create_script_file(script):
 
 
 def delete_temp_directory():
+    """
+    :return: при выходе из программы удаляется врменный каталог temp
+    """
     cwd_temp_path = pathlib.Path.cwd().joinpath('temp')
     try:
         shutil.rmtree(cwd_temp_path)
@@ -36,7 +42,13 @@ def delete_temp_directory():
         pass
 
 
-def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):  # переписать
+def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):
+    """
+    функция для запуска sql скриптов с помощью модуля subprocess и метода run
+    :param cmd: передается строка подключения и sql скрипт
+    :param return_split_result: если true - возвращает дополнительно список разбитый по разделителю конца строки
+    :return:
+    """
     result = subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('1251')
     if return_split_result:
         return result, result.split('\r\n')
@@ -45,6 +57,12 @@ def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):  #
 
 
 def get_string_show_pdbs(sysdba_name, sysdba_password, connection_string):
+    """
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :return: собирается строка подключения и sql запрос для отправки в subprocess
+    """
     script = f"""set feedback off
 set colsep "|"
 set pagesize 1000
@@ -64,7 +82,11 @@ exit;
     return cmd
 
 
-def formating_sqlplus_results_and_return_pdb_names(result):  # на вход проверить и список и строку
+def formating_sqlplus_results_and_return_pdb_names(result):
+    """
+    :param result: результат, полученный из subprocess
+    :return: форматирует аргумент и выводит имена pdb из базы данных
+    """
     pdb_name_list = []
     new_list = [i.replace('\t', '').replace('\r', '').replace('\n', '').replace(' ', '').split('|') for i in result if
                 i != '']
@@ -73,22 +95,24 @@ def formating_sqlplus_results_and_return_pdb_names(result):  # на вход п�
     return pdb_name_list
 
 
-def get_string_check_oracle_connection(connection_string,
-                                       sysdba_name,
-                                       sysdba_password):
-    script = f"set echo on select 'SUCCESS' as result from dual; exit;"
-    script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
-    logger.info('Соединение проверено успешно')
-    return cmd
+def format_list_result(result):
+    """
+    :param result: результат, полученный из subprocess
+    :return: форматирует аргумент и выводит список списков
+    """
+    new_list = [i.replace('\t', '').replace('\r', '').replace('\n', '').replace(' ', '').split('|') for i in result if
+                i != '']
+    return new_list
 
 
 def get_string_clone_pdb(connection_string, sysdba_name, sysdba_password, pdb_name, pdb_name_cloned):
     """
-        sqlplus c##devop/123devop@ORCL
-        set echo on;
-        set serveroutput on size unlimited;
-        execute pdb.clone_pdb('TEST_1', 'TEST_2');
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param pdb_name: имя pdb, с которой клонируемся
+    :param pdb_name_cloned: новое имя pdb
+    :return: собирается строка подключения и sql запрос для отправки в subprocess
     """
     script = f"""set echo on;
 set serveroutput on size unlimited;
@@ -103,10 +127,11 @@ exit;
 
 def get_string_make_pdb_writable(connection_string, sysdba_name, sysdba_password, pdb_name):
     """
-        sqlplus c##devop/123devop@ORCL
-        set echo on;
-        set serveroutput on size unlimited;
-        execute pdb.make_read_write('TEST_1');
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param pdb_name: имя pdb, у которой убираем режим только для чтения
+    :return:
     """
     script = f"""set echo on;
 set serveroutput on size unlimited;
@@ -121,10 +146,11 @@ exit;
 
 def get_string_delete_pdb(connection_string, sysdba_name, sysdba_password, pdb_name):
     """
-        sqlplus c##devop/123devop@ORCL
-        set echo on;
-        set serveroutput on size unlimited;
-        execute pdb.remove('TEST_2');
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param pdb_name: имя удаляемой pdb
+    :return:
     """
     script = f"""set echo on;
 set serveroutput on size unlimited;
@@ -137,6 +163,31 @@ exit;
     return cmd
 
 
-def runnings_check_connect(cmd):  # переписать
-    result = subprocess.run(cmd).stdout.decode('1251')
+def get_string_check_oracle_connection(connection_string,
+                                       sysdba_name,
+                                       sysdba_password):
+    """
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :return:
+    """
+    script = f"select 'CONNECTION SUCCESS' as result from dual exit;"
+    sql = script.encode()
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL'
+    return cmd, sql
+
+
+def runnings_check_connect(cmd, sql):
+    """
+    функция запускает скрипт проверки подключения (и только)
+    :param cmd: строка подключения из функции
+    :param sql: sql скрипт
+    :return:
+    """
+    result = subprocess.run(cmd, input=sql, stdout=subprocess.PIPE).stdout.decode('1251')
     return result
+
+
+if __name__ == '__main__':
+    pass
