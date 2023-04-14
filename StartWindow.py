@@ -73,7 +73,7 @@ class Window(QMainWindow):
         super(Window, self).__init__()
         self.setWindowTitle("ASDCO TOOLS")  # заголовок главного окна
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
-        self.btn_icon = QPixmap("others/hedgehog.png")
+        self.btn_icon = QPixmap("others/folder.png")
         self.layout = QWidget()
         self.main_layout = QVBoxLayout()
         self.top_grid_layout = QGridLayout()
@@ -168,27 +168,42 @@ class Window(QMainWindow):
                                                                 sysdba_name,
                                                                 sysdba_password)
         result = runnings_check_connect(oracle_string, sql)
-        self.input_main_area.appendPlainText(result)
+        if result.startswith('ORA'):
+            self.input_main_area.appendPlainText('Ошибка при проверки подключения к БД')
+            logger.info('Ошибка при проверки подключения к БД')
+        else:
+            self.input_main_area.appendPlainText('Успешное подключение к БД')
+            logger.info('Успешное подключение к БД')
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
-        logger.info(result)
-        if self.input_newpdb.text().upper() == '':
-            self.input_main_area.appendPlainText('Имя PDB не указано')
-            logger.info('Имя PDB не указано. Кнопка осталась заблокирована')
-        elif self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
-            self.input_main_area.appendPlainText('Указанная PDB и существующая база данных идентичны')
-            logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
-        elif self.input_newpdb.text().upper() in self.pdb_name_list:
-            self.input_main_area.appendPlainText('Указанная база данных ПРИСУТСТВУЕТ в списке')
+        try:
+            if self.input_newpdb.text().upper() == '':
+                self.input_main_area.appendPlainText('Имя PDB не указано')
+                logger.info('Имя PDB не указано. Кнопка осталась заблокирована')
+            elif self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
+                self.input_main_area.appendPlainText('Указанная PDB и существующая база данных идентичны')
+                logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
+            elif self.input_newpdb.text().upper() in self.pdb_name_list:
+                self.input_main_area.appendPlainText('Указанная база данных ПРИСУТСТВУЕТ в списке')
+                self.btn_clone_pdb.setEnabled(True)
+                self.btn_delete_pdb.setEnabled(True)
+                self.btn_make_pdb_for_write.setEnabled(True)
+                logger.info('Указанная база данных ПРИСУТСТВУЕТ в списке. Кнопки разблокированы')
+            elif self.input_newpdb.text().upper() not in self.pdb_name_list:
+                self.input_main_area.appendPlainText('Введена новая PDB')
+                self.btn_clone_pdb.setEnabled(True)
+                self.btn_delete_pdb.setEnabled(True)
+                self.btn_make_pdb_for_write.setEnabled(True)
+                logger.info('Указанная база данных ОТСУТСТВУЕТ в списке PDB. Введена новая PDB. Кнопки разблокированы')
+            else:
+                self.input_main_area.appendPlainText('Неизвестная ошибка. Кнопки заблокированы')
+                logger.info('Неизвестная ошибка. Кнопки заблокированы')
+                logger.info(traceback.format_exc())
+        except AttributeError:
+            self.input_main_area.appendPlainText('Список баз данных пуст. Использована сохраненное имя PDB')
             self.btn_clone_pdb.setEnabled(True)
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
-            logger.info('Указанная база данных ПРИСУТСТВУЕТ в списке. Кнопка разблокирована')
-        elif self.input_newpdb.text().upper() not in self.pdb_name_list:
-            self.input_main_area.appendPlainText('Указанная база данных ОТСУТСТВУЕТ в списке. Это новая PDB?')
-            self.btn_clone_pdb.setEnabled(True)
-            self.btn_delete_pdb.setEnabled(True)
-            self.btn_make_pdb_for_write.setEnabled(True)
-            logger.info('Указанная база данных ОТСУТСТВУЕТ в списке. Это новая PDB? Кнопка разблокирована')
+            logger.info('Список баз данных пуст. Использована сохраненное имя PDB. Кнопки разблокированы')
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
         return "Функция 'ПРОВЕРКА СОЕДИНЕНИЯ С БД' выполнена успешно"
 
@@ -307,7 +322,6 @@ class Window(QMainWindow):
 
     def fn_set_path_for_dumps(self):
         button = self.sender()
-        project_path = pathlib.Path.cwd()
         get_dir = QFileDialog.getExistingDirectory(self, caption='Выбрать файл')
         if get_dir:
             get_dir = get_dir
@@ -492,58 +506,53 @@ class Window(QMainWindow):
         self.btn_delete_schema = QPushButton('Удалить схему')
         self.btn_delete_schema.clicked.connect(self.deleting_schemas)
         self.path_schema1 = QLineEdit()
-        self.btn_path_schema1 = QPushButton()
-        self.btn_path_schema1.setIcon(QIcon(self.btn_icon))
         self.path_schema1.setPlaceholderText('Введите путь или нажмите на кнопку')
-        self.btn_path_schema1.clicked.connect(self.fn_set_path_for_dumps)
+        self.btn_path_schema1 = self.path_schema1.addAction(QIcon(self.btn_icon),
+                                                            QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_schema1.triggered.connect(self.fn_set_path_for_dumps)
         self.path_schema2 = QLineEdit()
-        self.btn_path_schema2 = QPushButton()
-        self.btn_path_schema2.setIcon(QIcon(self.btn_icon))
-        self.path_schema2.setPlaceholderText('ВВведите путь или нажмите на кнопку')
-        self.btn_path_schema2.clicked.connect(self.fn_set_path_for_dumps)
+        self.path_schema2.setPlaceholderText('Введите путь или нажмите на кнопку')
+        self.btn_path_schema2 = self.path_schema2.addAction(QIcon(self.btn_icon),
+                                                            QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_schema2.triggered.connect(self.fn_set_path_for_dumps)
         self.path_schema3 = QLineEdit()
-        self.btn_path_schema3 = QPushButton()
-        self.btn_path_schema3.setIcon(QIcon(self.btn_icon))
         self.path_schema3.setPlaceholderText('Введите путь или нажмите на кнопку')
-        self.btn_path_schema3.clicked.connect(self.fn_set_path_for_dumps)
+        self.btn_path_schema3 = self.path_schema3.addAction(QIcon(self.btn_icon),
+                                                            QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_schema3.triggered.connect(self.fn_set_path_for_dumps)
         self.path_schema4 = QLineEdit()
-        self.btn_path_schema4 = QPushButton()
-        self.btn_path_schema4.setIcon(QIcon(self.btn_icon))
         self.path_schema4.setPlaceholderText('Введите путь или нажмите на кнопку')
-        self.btn_path_schema4.clicked.connect(self.fn_set_path_for_dumps)
+        self.btn_path_schema4 = self.path_schema4.addAction(QIcon(self.btn_icon),
+                                                            QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_schema4.triggered.connect(self.fn_set_path_for_dumps)
         self.path_schema5 = QLineEdit()
-        self.btn_path_schema5 = QPushButton()
-        self.btn_path_schema5.setIcon(QIcon(self.btn_icon))
         self.path_schema5.setPlaceholderText('Введите путь или нажмите на кнопку')
-        self.btn_path_schema5.clicked.connect(self.fn_set_path_for_dumps)
+        self.btn_path_schema5 = self.path_schema5.addAction(QIcon(self.btn_icon),
+                                                            QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_schema5.triggered.connect(self.fn_set_path_for_dumps)
         self.input_schemas_area = QTextEdit()
         self.tab_schemas.layout.addWidget(self.checkbox_schema1, 0, 0)
         self.tab_schemas.layout.addWidget(self.input_schema1_name, 0, 1)
         self.tab_schemas.layout.addWidget(self.input_schema1_pass, 0, 2)
         self.tab_schemas.layout.addWidget(self.path_schema1, 0, 3)
-        self.tab_schemas.layout.addWidget(self.btn_path_schema1, 0, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema2, 1, 0)
         self.tab_schemas.layout.addWidget(self.input_schema2_name, 1, 1)
         self.tab_schemas.layout.addWidget(self.input_schema2_pass, 1, 2)
         self.tab_schemas.layout.addWidget(self.path_schema2, 1, 3)
-        self.tab_schemas.layout.addWidget(self.btn_path_schema2, 1, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema3, 2, 0)
         self.tab_schemas.layout.addWidget(self.input_schema3_name, 2, 1)
         self.tab_schemas.layout.addWidget(self.input_schema3_pass, 2, 2)
         self.tab_schemas.layout.addWidget(self.path_schema3, 2, 3)
-        self.tab_schemas.layout.addWidget(self.btn_path_schema3, 2, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema4, 3, 0)
         self.tab_schemas.layout.addWidget(self.input_schema4_name, 3, 1)
         self.tab_schemas.layout.addWidget(self.input_schema4_pass, 3, 2)
         self.tab_schemas.layout.addWidget(self.path_schema4, 3, 3)
-        self.tab_schemas.layout.addWidget(self.btn_path_schema4, 3, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema5, 4, 0)
         self.tab_schemas.layout.addWidget(self.input_schema5_name, 4, 1)
         self.tab_schemas.layout.addWidget(self.input_schema5_pass, 4, 2)
         self.tab_schemas.layout.addWidget(self.path_schema5, 4, 3)
-        self.tab_schemas.layout.addWidget(self.btn_path_schema5, 4, 4)
         self.tab_schemas.layout.addWidget(self.btn_create_schema, 5, 1)
-        self.tab_schemas.layout.addWidget(self.btn_delete_schema, 5, 2)
+        self.tab_schemas.layout.addWidget(self.btn_delete_schema, 5, 3)
         self.tab_schemas.layout.addWidget(self.input_schemas_area, 6, 0, 1, 4)
 
 
@@ -554,8 +563,4 @@ if __name__ == '__main__':
     win.show()
     sys.exit(app.exec())
 
-# добавить progressbar в выполнение функции
-# сделать функцию (или 2) для определения формата дампа ->
-# если архив, то предложение разархивировать, если дамп, то берем дамп
-# падает программа если не проверены бд и не заполнен список?
-# после клонирования (удаления?) почему-то выводится ошибка. посмотреть номер ошибки и текст
+# посмотреть на ошибку в реальной базе (171 строка check_connect startswith ORA)
