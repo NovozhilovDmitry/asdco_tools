@@ -1,4 +1,3 @@
-import pathlib
 import sys
 import traceback
 from myLogging import logger
@@ -30,8 +29,10 @@ from functions import (get_string_show_pdbs,
                        get_string_clone_pdb,
                        get_string_make_pdb_writable,
                        get_string_delete_pdb,
-                       runnings_check_connect,
-                       format_list_result)
+                       format_list_result,
+                       get_string_create_oracle_schema,
+                       get_string_grant_oracle_privilege,
+                       get_string_show_oracle_users)
 
 
 WINDOW_WIDTH = 1000
@@ -82,7 +83,7 @@ class Window(QMainWindow):
         self.tab_schemas = QWidget()
         self.threadpool = QThreadPool()
         self.settings = QSettings("config.ini", QSettings.Format.IniFormat)
-        self.schemas = {'Схема_1': 0, 'Схема_2': 0, 'Схема_3': 0, 'Схема_4': 0, 'Схема_5': 0}
+        self.schemas = {'schema1': 0, 'schema2': 0, 'schema3': 0, 'schema4': 0, 'schema5': 0}
         self.header_layout()  # функция с добавленными элементами интерфейса для верхней части
         self.pdb_tab()  # функция с добавленными элементами вкладки pdb
         self.schemas_tab()  # функция с добавленными элементами вкладки со схемами
@@ -164,10 +165,10 @@ class Window(QMainWindow):
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
-        oracle_string, sql = get_string_check_oracle_connection(connection_string,
-                                                                sysdba_name,
-                                                                sysdba_password)
-        result = runnings_check_connect(oracle_string, sql)
+        oracle_string = get_string_check_oracle_connection(connection_string,
+                                                           sysdba_name,
+                                                           sysdba_password)
+        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         if result.startswith('ORA'):
             self.input_main_area.appendPlainText('Ошибка при проверки подключения к БД')
             logger.info('Ошибка при проверки подключения к БД')
@@ -305,20 +306,64 @@ class Window(QMainWindow):
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
         return f'PDB {pdb_name} переведена в режим доступной для записи'
 
-    def creating_schemas(self):
-        checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
-        self.input_schemas_area.setText(f'Создание схем: {checked_schemas}')
+    def thread_creating_schemas(self):
+        self.schemas_progressbar.setRange(0, 0)
+        worker = Worker(self.fn_creating_schemas)  # функция, которая выполняется в потоке
+        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
+        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
+        self.threadpool.start(worker)
 
-    def deleting_schemas(self):
+    def fn_creating_schemas(self, progress_callback):
+        connection_string = self.line_main_connect.text()
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
+
+        checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
+        format_checked_schemas = ', '.join(checked_schemas)
+        self.input_schemas_area.append(f'Создание схем: {format_checked_schemas}')
+        for schema_name in checked_schemas:
+            name = eval('self.input_' + schema_name + '_name.text()')
+            identified = eval('self.input_' + schema_name + '_pass.text()')
+            oracle_string = get_string_create_oracle_schema(connection_string,
+                                                            sysdba_name,
+                                                            sysdba_password,
+                                                            name,
+                                                            identified)
+            result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+            self.input_schemas_area.append(result)
+            check_result_for_privileges = self._grant_privilege_schemas(connection_string,
+                                                                        sysdba_name,
+                                                                        sysdba_password,
+                                                                        schema_name)
+            self.input_schemas_area.append(check_result_for_privileges)
+            show_schemas_from_pdb = self._show_shemas(connection_string, sysdba_name, sysdba_password)
+            self.input_schemas_area.append(show_schemas_from_pdb)
+            # _import_schemas()
+        self.schemas_progressbar.setRange(1, 1)
+
+    def _grant_privilege_schemas(self, connection_string, sysdba_name, sysdba_password, schema_name):
+        oracle_string = get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name)
+        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        return result
+
+    def _show_shemas(self, connection_string, sysdba_name, sysdba_password):
+        oracle_string = get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string)
+        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        return result
+
+    def import_schemas(self):
+        pass
+
+    def fn_deleting_schemas(self):
         checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
-        self.input_schemas_area.setText(f'Удаление схем: {checked_schemas}')
+        self.input_schemas_area.append(f'Удаление схем: {checked_schemas}')
 
     def fn_checkbox_clicked_for_schemas(self, checked):
         checkbox = self.sender()
         if checked:
-            self.schemas[checkbox.text()] = 1
+            self.schemas[checkbox.name] = 1
         else:
-            self.schemas[checkbox.text()] = 0
+            self.schemas[checkbox.name] = 0
 
     def fn_set_path_for_dumps(self):
         button = self.sender()
@@ -457,7 +502,7 @@ class Window(QMainWindow):
         self.btn_make_pdb_for_write.setEnabled(False)
         self.input_main_area = QPlainTextEdit()
         self.input_main_area.setFixedSize(WINDOW_WIDTH, 100)
-        self.progressbar = QProgressBar()
+        self.pdb_progressbar = QProgressBar()
         self.table = QTableWidget()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tab_control.layout.addWidget(self.input_newpdb, 1, 0)
@@ -465,7 +510,7 @@ class Window(QMainWindow):
         self.tab_control.layout.addWidget(self.btn_clone_pdb, 1, 2)
         self.tab_control.layout.addWidget(self.table, 2, 0, 1, 3)
         self.tab_control.layout.addWidget(self.btn_make_pdb_for_write, 3, 0)
-        self.tab_control.layout.addWidget(self.progressbar, 3, 1)
+        self.tab_control.layout.addWidget(self.pdb_progressbar, 3, 1)
         self.tab_control.layout.addWidget(self.btn_delete_pdb, 3, 2)
         self.tab_control.layout.addWidget(self.input_main_area, 5, 0, 1, 3)
         self.tab_control.setLayout(self.tab_control.layout)
@@ -479,32 +524,37 @@ class Window(QMainWindow):
         self.input_schema1_name = QLineEdit()
         self.input_schema1_pass = QLineEdit()
         self.input_schema1_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        self.checkbox_schema1 = QCheckBox('Схема_1')
+        self.checkbox_schema1 = QCheckBox()
+        self.checkbox_schema1.name = 'schema1'
         self.checkbox_schema1.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
         self.input_schema2_name = QLineEdit()
         self.input_schema2_pass = QLineEdit()
         self.input_schema2_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        self.checkbox_schema2 = QCheckBox('Схема_2')
+        self.checkbox_schema2 = QCheckBox()
+        self.checkbox_schema2.name = 'schema2'
         self.checkbox_schema2.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
         self.input_schema3_name = QLineEdit()
         self.input_schema3_pass = QLineEdit()
         self.input_schema3_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        self.checkbox_schema3 = QCheckBox('Схема_3')
+        self.checkbox_schema3 = QCheckBox()
+        self.checkbox_schema3.name = 'schema3'
         self.checkbox_schema3.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
         self.input_schema4_name = QLineEdit()
         self.input_schema4_pass = QLineEdit()
         self.input_schema4_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        self.checkbox_schema4 = QCheckBox('Схема_4')
+        self.checkbox_schema4 = QCheckBox()
+        self.checkbox_schema4.name = 'schema4'
         self.checkbox_schema4.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
         self.input_schema5_name = QLineEdit()
         self.input_schema5_pass = QLineEdit()
         self.input_schema5_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        self.checkbox_schema5 = QCheckBox('Схема_5')
+        self.checkbox_schema5 = QCheckBox()
+        self.checkbox_schema5.name = 'schema5'
         self.checkbox_schema5.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
         self.btn_create_schema = QPushButton('Создать схему')
-        self.btn_create_schema.clicked.connect(self.creating_schemas)
+        self.btn_create_schema.clicked.connect(self.fn_creating_schemas)
         self.btn_delete_schema = QPushButton('Удалить схему')
-        self.btn_delete_schema.clicked.connect(self.deleting_schemas)
+        self.btn_delete_schema.clicked.connect(self.fn_deleting_schemas)
         self.path_schema1 = QLineEdit()
         self.path_schema1.setPlaceholderText('Введите путь или нажмите на кнопку')
         self.btn_path_schema1 = self.path_schema1.addAction(QIcon(self.btn_icon),
@@ -531,6 +581,7 @@ class Window(QMainWindow):
                                                             QLineEdit.ActionPosition.TrailingPosition)
         self.btn_path_schema5.triggered.connect(self.fn_set_path_for_dumps)
         self.input_schemas_area = QTextEdit()
+        self.schemas_progressbar = QProgressBar()
         self.tab_schemas.layout.addWidget(self.checkbox_schema1, 0, 0)
         self.tab_schemas.layout.addWidget(self.input_schema1_name, 0, 1)
         self.tab_schemas.layout.addWidget(self.input_schema1_pass, 0, 2)
@@ -552,6 +603,7 @@ class Window(QMainWindow):
         self.tab_schemas.layout.addWidget(self.input_schema5_pass, 4, 2)
         self.tab_schemas.layout.addWidget(self.path_schema5, 4, 3)
         self.tab_schemas.layout.addWidget(self.btn_create_schema, 5, 1)
+        self.tab_schemas.layout.addWidget(self.schemas_progressbar, 5, 2)
         self.tab_schemas.layout.addWidget(self.btn_delete_schema, 5, 3)
         self.tab_schemas.layout.addWidget(self.input_schemas_area, 6, 0, 1, 4)
 

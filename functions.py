@@ -7,25 +7,26 @@ import subprocess
 from myLogging import logger
 
 
-TEMP_DIRECTORY = r'temp'  # записать в настройки и дать возможность менять директорию по умолчанию
+TEMP_DIRECTORY = r'temp'
+DATA_PUMP_DIR = r'DATA_PUMP_DIR'
 
 
-def create_script_file(script):
+def create_script_file(script):  # переписать с os на pathlib
     """
     :param script: sql скрипт из функций
     :return: создает временный файл с sql запросом
     """
     directory_name = os.path.join(os.getcwd(), TEMP_DIRECTORY)
-    file_name = os.path.join(os.getcwd(), TEMP_DIRECTORY, f"script_{time.time_ns()}.sql")
+    file_name = os.path.join(os.getcwd(), TEMP_DIRECTORY, f'script_{time.time_ns()}.sql')
     try:
         if not os.path.isdir(directory_name):
             os.makedirs(directory_name)
-            logger.info(f'Create temporary directory={directory_name}.')
+            logger.info(f'Создана директорич {directory_name} для временного размещения скриптов')
         with open(file_name, 'w') as file:
             file.write(script)
-        logger.info(f'Create temporary file={file_name}.')
+        logger.info(f'Создан временный файл скрипта {file_name}')
     except Exception as error:
-        logger.error(f'Cannot create temporary file={file_name} {error}!')
+        logger.error(f'Временный файл скрипта {file_name} не может быть создан по причине {error}!')
         sys.exit(1)
     return file_name
 
@@ -34,10 +35,10 @@ def delete_temp_directory():
     """
     :return: при выходе из программы удаляется врменный каталог temp
     """
-    cwd_temp_path = pathlib.Path.cwd().joinpath('temp')
+    cwd_temp_path = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
     try:
         shutil.rmtree(cwd_temp_path)
-        logger.info('директория temp удалена')
+        logger.info(f'директория {TEMP_DIRECTORY} удалена')
     except FileNotFoundError:
         pass
 
@@ -78,7 +79,7 @@ exit;
     """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
-    logger.info(f"Подключение к {connection_string}/ORCL под пользователем {sysdba_name}")
+    logger.info(f'Подключение к {connection_string}/ORCL под пользователем {sysdba_name}')
     return cmd
 
 
@@ -121,7 +122,7 @@ exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
-    logger.info(f"Клонирование базы данных начато. Имя клонируемой PDB {pdb_name}, имя новой PDB {pdb_name_cloned}")
+    logger.info(f'Клонирование базы данных начато. Имя клонируемой PDB {pdb_name}, имя новой PDB {pdb_name_cloned}')
     return cmd
 
 
@@ -140,7 +141,7 @@ exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
-    logger.info(f"Сделать клонируемую PDB {pdb_name} доступной для записи")
+    logger.info(f'Сделать клонируемую PDB {pdb_name} доступной для записи')
     return cmd
 
 
@@ -159,23 +160,35 @@ exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
-    logger.info(f"Удаление PDB {pdb_name}")
+    logger.info(f'Удаление PDB {pdb_name}')
     return cmd
 
 
-def get_string_check_oracle_connection(connection_string,
-                                       sysdba_name,
-                                       sysdba_password):
+def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA
     :return:
     """
-    script = f"select 'CONNECTION SUCCESS' as result from dual exit;"
-    sql = script.encode()
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL'
-    return cmd, sql
+    script = f'select "CONNECTION SUCCESS" as result from dual exit;'
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
+    logger.info(f'Проверка соединения')
+    return cmd
+
+
+# def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password):
+#     """
+#     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+#     :param sysdba_name: логин пользователя SYSDBA
+#     :param sysdba_password: пароль пользователя SYSDBA
+#     :return:
+#     """
+#     script = f'select "CONNECTION SUCCESS" as result from dual exit;'
+#     sql = script.encode()
+#     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL'
+#     return cmd, sql
 
 
 def runnings_check_connect(cmd, sql):
@@ -183,10 +196,78 @@ def runnings_check_connect(cmd, sql):
     функция запускает скрипт проверки подключения (и только)
     :param cmd: строка подключения из функции
     :param sql: sql скрипт
-    :return:
+    :return: возвращает результат выполнения скрипта
     """
     result = subprocess.run(cmd, input=sql, stdout=subprocess.PIPE).stdout.decode('1251')
     return result
+
+
+# код создания схем
+def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, schema_name, schema_password):
+    """
+        sqlplus c##devop/123devop@localhost/ASDCO.localdomain as sysdba
+        create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
+    """
+    script = f'create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;exit;'
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL as sysdba @{script_file}'
+    logger.info(f'Создание схемы {schema_name}')
+    return cmd
+
+
+def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name):
+    """
+        sqlplus c##devop/123devop@localhost/ASDCO.localdomain as sysdba
+        grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
+        ...
+        grant read,write on directory DATA_PUMP_DIR to {schema_name};
+    """
+    script = f"""grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
+grant DBA to {schema_name};
+grant FLASHBACK ANY TABLE,UNLIMITED TABLESPACE, CREATE ANY DIRECTORY, ALTER SESSION, SELECT ANY DICTIONARY to {schema_name};
+grant SELECT on V_$SESSION to {schema_name};
+grant SELECT on V_$LOCKED_OBJECT to {schema_name};
+grant SELECT on V_$SQL to {schema_name};
+grant SELECT on GV_$SESSION to {schema_name};
+grant SELECT on GV_$TRANSACTION to {schema_name};
+grant SELECT on DBA_OBJECTS to {schema_name};
+grant SELECT on DBA_HIST_SNAPSHOT to {schema_name};
+grant SELECT on DBA_ADVISOR_TASKS to {schema_name};
+grant EXECUTE on DBMS_ADVISOR to {schema_name};
+grant EXECUTE on CHECKHISTORYINTEGRITY_UPD to {schema_name};
+grant EXECUTE on CHECKCOMPLETEHISTINTEGRITY_DEL to {schema_name};
+grant EXECUTE on CHECKHISTORYINTEGRITY_DEL to {schema_name};
+grant EXECUTE on CHECKHISTORYINTEGRITY_INS to {schema_name};
+grant EXECUTE on CHECKCOMPLETEHISTINTEGRITY_INS to {schema_name};
+grant EXECUTE on CHECKCOMPLETEHISTINTEGRITY_UPD to {schema_name};
+grant EXECUTE on CheckASDCOtoAPOuniqueness to {schema_name};
+grant execute on add_DateField to {schema_name};
+grant execute on formatPrecision to {schema_name};
+grant read,write on directory {DATA_PUMP_DIR} to {schema_name};
+"""
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL as sysdba @{script_file}'
+    logger.info(f'Привилегии для {schema_name} предоставлены')
+    return cmd
+
+
+def get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string):
+    """
+        sqlplus credit/credit@localhost/ASDCO.localdomain
+        alter session set NLS_DATE_FORMAT = 'YYYY.MM.DD HH24:MI:SS';
+        column USERNAME format A40;
+        set linesize 60;
+        select USERNAME, CREATED from dba_users where COMMON='NO';
+    """
+    script = f"""column USERNAME format A40;
+alter session set NLS_DATE_FORMAT = 'YYYY.MM.DD HH24:MI:SS';
+set linesize 60;
+select USERNAME, CREATED from dba_users where COMMON='NO';
+"""
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
+    logger.info(f'Показать созданные схемы')
+    return cmd
 
 
 if __name__ == '__main__':
