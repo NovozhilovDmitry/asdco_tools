@@ -13,7 +13,6 @@ from .integrityOracle12 import get_string_check_oracle_connection, \
     get_string_show_pdbs, \
     check_failure_result_show_pdbs
 from additions import MAIN_WINDOW_TITLE
-from .OracleCommon import SysdbaUserStringGUISuit, ConnectionStringGUISuit, ConnectionCDBStringGUISuit, SchemeGUISuit
 
 
 WINDOW_TITLE = 'Oracle (local). Экспорт схем (data pump)'
@@ -269,40 +268,12 @@ class OracleExpdp(Frame):
         else:
             self.button_export_scheme.configure(state=DISABLED)
 
-    def _load_connection_string_gui_suit(self, start_row_position):
-        return ConnectionStringGUISuit(self.window,
-                                       self.config['connection_string'],
-                                       start_row_position)
-
-    def _load_connection_cdb_string_gui_suit(self, start_row_position):
-        return ConnectionCDBStringGUISuit(self.window,
-                                          self.config['connection_cdb_string'],
-                                          self.config['pdb_name'],
-                                          self.config['remote_system_data_pump_dir'],
-                                          self.config['local_system_data_pump_dir'],
-                                          start_row_position)
-
-    def _load_sysdba_user_string_gui_suit(self, start_row_position):
-        return SysdbaUserStringGUISuit(self.window,
-                                       self.config['sysdba_name_string'],
-                                       self.config['sysdba_password_string'],
-                                       start_row_position)
-
     def _load_scheme_gui_suits(self, start_row_position):
         gui_suits = []
         try:
             for scheme_id in sorted(self.config['scheme'].keys()):
                 scheme = self.config['scheme'][scheme_id]
                 dump_file = scheme['dump_file']
-                gui_suits.append(SchemeGUISuit(self.window,
-                                               scheme_id,
-                                               self.checked,
-                                               self.set_visibility_scheme_gui_suits,
-                                               scheme['name'],
-                                               scheme['password'],
-                                               scheme['enabled'],
-                                               dump_file,
-                                               start_row_position))
                 start_row_position += 1
         except KeyError as error:
             logger.error(f'KeyError in _load_scheme_gui_suits() {error}!')
