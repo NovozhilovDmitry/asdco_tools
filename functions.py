@@ -270,5 +270,95 @@ select USERNAME, CREATED from dba_users where COMMON='NO';
     return cmd
 
 
+def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, schema_password, schema_name_in_dump, schema_dump_file):
+    """
+        imp deposit/deposit@localhost:1521/ASDCO.localdomain FILE='.\dmp\88350_deposit.dmp'
+            FROMUSER=deposit TOUSER=deposit GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE
+    """
+    cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE'"
+    logger.info(f'Вызов оракловского приложения для импортирования БД (imp.exe)')
+    return cmd
+
+
+def get_string_enabled_oracle_asdco_options(connection_string, pdb_name, schema_name, schema_password):
+    script = f"""-- включение row movement
+begin
+for c in (SELECT table_name FROM user_tables WHERE status = 'VALID' AND temporary = 'N' AND dropped = 'NO' AND table_name != '{schema_name}' AND row_movement != 'ENABLED' AND table_name NOT LIKE 'SYS\_%%')
+Loop
+begin
+execute immediate
+'ALTER TABLE ' || c.table_name || ' ENABLE ROW MOVEMENT';
+end;
+end loop;
+end;
+/
+-- установка pctversionbegin
+begin
+for c in (SELECT table_name, column_name FROM dba_tab_cols WHERE owner = UPPER('{schema_name}') AND data_type LIKE '%LOB' AND table_name = ANY(SELECT table_name FROM all_lobs WHERE owner = UPPER('{schema_name}') AND table_name IN (SELECT object_name FROM dba_objects WHERE owner = UPPER('{schema_name}') AND temporary = 'N' AND object_type = 'TABLE') AND (PCTVERSION < 50 OR PCTVERSION IS NULL)))
+Loop
+begin
+execute immediate
+'ALTER TABLE ' || c.table_name || ' MODIFY LOB(' || c.column_name || ') (PCTVERSION 50)';
+end;
+end loop;
+end;
+/
+-- перекомпиляция view
+begin
+for c in (SELECT object_name name FROM user_objects WHERE object_type = 'VIEW' AND status='INVALID')
+Loop
+begin
+execute immediate
+'ALTER VIEW ' || c.name || ' compile';
+end;
+end loop;
+end;
+/
+-- перекомпиляция функций и процедур
+begin
+for c in (SELECT object_type type,object_name name FROM user_objects WHERE object_type in ('FUNCTION','PROCEDURE') AND status = 'INVALID')
+Loop
+begin
+execute immediate
+'ALTER ' || c.type || ' ' || c.name || ' compile';
+exception when others then null;
+end;
+end loop;
+end;
+/
+-- перекомпиляция триггеров
+begin
+for c in (SELECT object_type type, object_name name FROM user_objects WHERE object_type = 'TRIGGER' AND status = 'INVALID')
+Loop
+begin
+execute immediate
+'alter ' || c.type || ' ' || c.name || ' compile';
+end;
+end loop;
+end;
+/
+-- перекомпиляция пакетов
+begin
+for c in (SELECT object_type type, object_name name from user_objects WHERE object_type IN ('PACKAGE','PACKAGE BODY') AND status='INVALID')
+Loop
+begin
+if (c.type='PACKAGE') then
+execute immediate
+'ALTER PACKAGE ' || c.name || ' compile PACKAGE';
+else
+execute immediate
+'ALTER PACKAGE ' || c.name || ' compile BODY';
+end if;
+end;
+end loop;
+end;
+/
+"""
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {schema_name}/{schema_password}@{connection_string}/{pdb_name} @{script_file}'
+    logger.info(f'Обновление триггеров, функций и процедур')
+    return cmd
+
+
 if __name__ == '__main__':
     pass

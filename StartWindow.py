@@ -32,7 +32,9 @@ from functions import (get_string_show_pdbs,
                        format_list_result,
                        get_string_create_oracle_schema,
                        get_string_grant_oracle_privilege,
-                       get_string_show_oracle_users)
+                       get_string_show_oracle_users,
+                       get_string_enabled_oracle_asdco_options,
+                       get_string_import_oracle_schema)
 
 
 WINDOW_WIDTH = 1000
@@ -338,7 +340,8 @@ class Window(QMainWindow):
             self.input_schemas_area.append(check_result_for_privileges)
             show_schemas_from_pdb = self._show_shemas(connection_string, sysdba_name, sysdba_password)
             self.input_schemas_area.append(show_schemas_from_pdb)
-            # _import_schemas()
+            # __import_schemas()  не забыть добавить имя pdb, добавить графическое поле с именем схемы в дампе
+            # __enabled_schemes_options()
         self.schemas_progressbar.setRange(1, 1)
 
     def _grant_privilege_schemas(self, connection_string, sysdba_name, sysdba_password, schema_name):
@@ -351,8 +354,20 @@ class Window(QMainWindow):
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         return result
 
-    def import_schemas(self):
-        pass
+# импорт схем еще не закончен
+    def __import_schemas(self, connection_string, pdb_name, schema_name,
+                         schema_password, schema_name_in_dump, schema_dump_file):
+        oracle_string = get_string_import_oracle_schema(connection_string, pdb_name, schema_name,
+                                                        schema_password, schema_name_in_dump, schema_dump_file)
+        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        return result
+
+# эта функция тоже еще не закончена
+    def __enabled_schemes_options(self, connection_string, pdb_name, schema_name, schema_password):
+        oracle_string = get_string_enabled_oracle_asdco_options(connection_string, pdb_name,
+                                                                schema_name, schema_password)
+        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        return result
 
     def fn_deleting_schemas(self):
         checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
