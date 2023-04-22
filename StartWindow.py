@@ -387,16 +387,9 @@ class Window(QMainWindow):
             get_dir = get_dir
         else:
             get_dir = 'Путь не выбран'
-        if button is self.btn_path_schema1:
-            self.path_schema1.setText(get_dir)
-        elif button is self.btn_path_schema2:
-            self.path_schema2.setText(get_dir)
-        elif button is self.btn_path_schema3:
-            self.path_schema3.setText(get_dir)
-        elif button is self.btn_path_schema4:
-            self.path_schema4.setText(get_dir)
-        elif button is self.btn_path_schema5:
-            self.path_schema5.setText(get_dir)
+        for i in range(1, 6):
+            if button is eval('self.btn_path_schema' + str(i)):
+                eval('self.path_schema' + str(i) + '.setText(get_dir)')
 
     def closeEvent(self, event):
         """
@@ -408,7 +401,15 @@ class Window(QMainWindow):
         self.settings.setValue('connectline', self.line_main_connect.text())
         self.settings.setValue('password', self.input_main_password.text())
         self.settings.setValue('PDB_name', self.list_pdb.currentText())
-        # настройки вкладки со схемами
+        # сохранение размеров и положения окна
+        self.settings.beginGroup('GUI')
+        self.settings.setValue('width', self.geometry().width())
+        self.settings.setValue('height', self.geometry().height())
+        self.settings.setValue('x', self.geometry().x())
+        self.settings.setValue('y', self.geometry().y())
+        self.settings.endGroup()
+        # сохранение настроек схем
+        self.settings.beginGroup('SCHEMAS')
         self.settings.setValue('credit1_schemaname', self.input_schema1_name.text())
         self.settings.setValue('deposit1_schemaname', self.input_schema2_name.text())
         self.settings.setValue('credit1_ar_schemaname', self.input_schema3_name.text())
@@ -419,12 +420,16 @@ class Window(QMainWindow):
         self.settings.setValue('credit1_ar_schemapass', self.input_schema3_pass.text())
         self.settings.setValue('deposit1_ar_schemapass', self.input_schema4_pass.text())
         self.settings.setValue('reserve_schemapass', self.input_schema5_pass.text())
-        # сохранение размеров и положения окна
-        self.settings.beginGroup('GUI')
-        self.settings.setValue('width', self.geometry().width())
-        self.settings.setValue('height', self.geometry().height())
-        self.settings.setValue('x', self.geometry().x())
-        self.settings.setValue('y', self.geometry().y())
+        self.settings.setValue('credit_pdb_schemaname', self.pdb_schema_name1.text())
+        self.settings.setValue('deposit_pdb_schemaname', self.pdb_schema_name2.text())
+        self.settings.setValue('credit_ar_pdb_schemaname', self.pdb_schema_name3.text())
+        self.settings.setValue('deposit_ar_pdb_schemaname', self.pdb_schema_name4.text())
+        self.settings.setValue('reserve_pdb_schemaname', self.pdb_schema_name5.text())
+        self.settings.setValue('credit_dump_path', self.path_schema1.text())
+        self.settings.setValue('deposit_dump_path', self.path_schema2.text())
+        self.settings.setValue('credit_ar_dump_path', self.path_schema3.text())
+        self.settings.setValue('deposit_ar_dump_path', self.path_schema4.text())
+        self.settings.setValue('reserve_dump_path', self.path_schema5.text())
         self.settings.endGroup()
         delete_temp_directory()  # удалить каталог temp
         logger.debug('Пользовательские настройки сохранены')
@@ -440,23 +445,26 @@ class Window(QMainWindow):
         self.line_main_connect.setText(self.settings.value('connectline'))
         self.list_pdb.setCurrentText(self.settings.value('PDB_name'))
         # вкладка со схемами
-        self.input_schema1_name.setText(self.settings.value('credit1_schemaname'))
-        self.input_schema2_name.setText(self.settings.value('deposit1_schemaname'))
-        self.input_schema3_name.setText(self.settings.value('credit1_ar_schemaname'))
-        self.input_schema4_name.setText(self.settings.value('deposit1_ar_schemaname'))
-        self.input_schema1_pass.setText(self.settings.value('credit1_schemapass'))
-        self.input_schema2_pass.setText(self.settings.value('deposit1_schemapass'))
-        self.input_schema3_pass.setText(self.settings.value('credit1_ar_schemapass'))
-        self.input_schema4_pass.setText(self.settings.value('deposit1_ar_schemapass'))
-        # список
-        try:
-            for i in self.settings.value('list'):
-                self.list_pdb.addItem(i)
-            logger.debug('Настройки для поля с именами БД загружены.')
-        except TypeError:
-            pass
-            logger.debug('Настройки для поля с именами БД НЕ загружены.')
-
+        self.input_schema1_name.setText(self.settings.value('SCHEMAS/credit1_schemaname'))
+        self.input_schema2_name.setText(self.settings.value('SCHEMAS/deposit1_schemaname'))
+        self.input_schema3_name.setText(self.settings.value('SCHEMAS/credit1_ar_schemaname'))
+        self.input_schema4_name.setText(self.settings.value('SCHEMAS/deposit1_ar_schemaname'))
+        self.input_schema5_name.setText(self.settings.value('SCHEMAS/reserve_schemaname'))
+        self.input_schema1_pass.setText(self.settings.value('SCHEMAS/credit1_schemapass'))
+        self.input_schema2_pass.setText(self.settings.value('SCHEMAS/deposit1_schemapass'))
+        self.input_schema3_pass.setText(self.settings.value('SCHEMAS/credit1_ar_schemapass'))
+        self.input_schema4_pass.setText(self.settings.value('SCHEMAS/deposit1_ar_schemapass'))
+        self.input_schema5_pass.setText(self.settings.value('SCHEMAS/reserve_schemapass'))
+        self.pdb_schema_name1.setText(self.settings.value('SCHEMAS/credit_pdb_schemaname'))
+        self.pdb_schema_name2.setText(self.settings.value('SCHEMAS/deposit_pdb_schemaname'))
+        self.pdb_schema_name3.setText(self.settings.value('SCHEMAS/credit_ar_pdb_schemaname'))
+        self.pdb_schema_name4.setText(self.settings.value('SCHEMAS/deposit_ar_pdb_schemaname'))
+        self.pdb_schema_name5.setText(self.settings.value('SCHEMAS/reserve_pdb_schemaname'))
+        self.path_schema1.setText(self.settings.value('SCHEMAS/credit_dump_path'))
+        self.path_schema2.setText(self.settings.value('SCHEMAS/deposit_dump_path'))
+        self.path_schema3.setText(self.settings.value('SCHEMAS/credit_ar_dump_path'))
+        self.path_schema4.setText(self.settings.value('SCHEMAS/deposit_ar_dump_path'))
+        self.path_schema5.setText(self.settings.value('SCHEMAS/reserve_dump_path'))
         try:
             width = int(self.settings.value('GUI/width'))
             height = int(self.settings.value('GUI/height'))
@@ -537,35 +545,55 @@ class Window(QMainWindow):
         self.tab_schemas.layout = QGridLayout()
         self.tabs.addTab(self.tab_schemas, "Управление схемами")
         self.input_schema1_name = QLineEdit()
+        self.input_schema1_name.setPlaceholderText('Имя новой схемы')
         self.input_schema1_pass = QLineEdit()
+        self.input_schema1_pass.setPlaceholderText('Пароль для новой схемы')
         self.input_schema1_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.checkbox_schema1 = QCheckBox()
         self.checkbox_schema1.name = 'schema1'
         self.checkbox_schema1.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
+        self.pdb_schema_name1 = QLineEdit()
+        self.pdb_schema_name1.setPlaceholderText('Имя схемы в дампе')
         self.input_schema2_name = QLineEdit()
+        self.input_schema2_name.setPlaceholderText('Имя новой схемы')
         self.input_schema2_pass = QLineEdit()
+        self.input_schema2_pass.setPlaceholderText('Пароль для новой схемы')
         self.input_schema2_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.checkbox_schema2 = QCheckBox()
         self.checkbox_schema2.name = 'schema2'
         self.checkbox_schema2.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
+        self.pdb_schema_name2 = QLineEdit()
+        self.pdb_schema_name2.setPlaceholderText('Имя схемы в дампе')
         self.input_schema3_name = QLineEdit()
+        self.input_schema3_name.setPlaceholderText('Имя новой схемы')
         self.input_schema3_pass = QLineEdit()
+        self.input_schema3_pass.setPlaceholderText('Пароль для новой схемы')
         self.input_schema3_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.checkbox_schema3 = QCheckBox()
         self.checkbox_schema3.name = 'schema3'
         self.checkbox_schema3.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
+        self.pdb_schema_name3 = QLineEdit()
+        self.pdb_schema_name3.setPlaceholderText('Имя схемы в дампе')
         self.input_schema4_name = QLineEdit()
+        self.input_schema4_name.setPlaceholderText('Имя новой схемы')
         self.input_schema4_pass = QLineEdit()
+        self.input_schema4_pass.setPlaceholderText('Пароль для новой схемы')
         self.input_schema4_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.checkbox_schema4 = QCheckBox()
         self.checkbox_schema4.name = 'schema4'
         self.checkbox_schema4.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
+        self.pdb_schema_name4 = QLineEdit()
+        self.pdb_schema_name4.setPlaceholderText('Имя схемы в дампе')
         self.input_schema5_name = QLineEdit()
+        self.input_schema5_name.setPlaceholderText('Имя новой схемы')
         self.input_schema5_pass = QLineEdit()
+        self.input_schema5_pass.setPlaceholderText('Пароль для новой схемы')
         self.input_schema5_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.checkbox_schema5 = QCheckBox()
         self.checkbox_schema5.name = 'schema5'
         self.checkbox_schema5.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
+        self.pdb_schema_name5 = QLineEdit()
+        self.pdb_schema_name5.setPlaceholderText('Имя схемы в дампе')
         self.btn_create_schema = QPushButton('Создать схему')
         self.btn_create_schema.clicked.connect(self.fn_creating_schemas)
         self.btn_delete_schema = QPushButton('Удалить схему')
@@ -600,27 +628,32 @@ class Window(QMainWindow):
         self.tab_schemas.layout.addWidget(self.checkbox_schema1, 0, 0)
         self.tab_schemas.layout.addWidget(self.input_schema1_name, 0, 1)
         self.tab_schemas.layout.addWidget(self.input_schema1_pass, 0, 2)
-        self.tab_schemas.layout.addWidget(self.path_schema1, 0, 3)
+        self.tab_schemas.layout.addWidget(self.pdb_schema_name1, 0, 3)
+        self.tab_schemas.layout.addWidget(self.path_schema1, 0, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema2, 1, 0)
         self.tab_schemas.layout.addWidget(self.input_schema2_name, 1, 1)
         self.tab_schemas.layout.addWidget(self.input_schema2_pass, 1, 2)
-        self.tab_schemas.layout.addWidget(self.path_schema2, 1, 3)
+        self.tab_schemas.layout.addWidget(self.pdb_schema_name2, 1, 3)
+        self.tab_schemas.layout.addWidget(self.path_schema2, 1, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema3, 2, 0)
         self.tab_schemas.layout.addWidget(self.input_schema3_name, 2, 1)
         self.tab_schemas.layout.addWidget(self.input_schema3_pass, 2, 2)
-        self.tab_schemas.layout.addWidget(self.path_schema3, 2, 3)
+        self.tab_schemas.layout.addWidget(self.pdb_schema_name3, 2, 3)
+        self.tab_schemas.layout.addWidget(self.path_schema3, 2, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema4, 3, 0)
         self.tab_schemas.layout.addWidget(self.input_schema4_name, 3, 1)
         self.tab_schemas.layout.addWidget(self.input_schema4_pass, 3, 2)
-        self.tab_schemas.layout.addWidget(self.path_schema4, 3, 3)
+        self.tab_schemas.layout.addWidget(self.pdb_schema_name4, 3, 3)
+        self.tab_schemas.layout.addWidget(self.path_schema4, 3, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema5, 4, 0)
         self.tab_schemas.layout.addWidget(self.input_schema5_name, 4, 1)
         self.tab_schemas.layout.addWidget(self.input_schema5_pass, 4, 2)
-        self.tab_schemas.layout.addWidget(self.path_schema5, 4, 3)
+        self.tab_schemas.layout.addWidget(self.pdb_schema_name5, 4, 3)
+        self.tab_schemas.layout.addWidget(self.path_schema5, 4, 4)
         self.tab_schemas.layout.addWidget(self.btn_create_schema, 5, 1)
-        self.tab_schemas.layout.addWidget(self.schemas_progressbar, 5, 2)
-        self.tab_schemas.layout.addWidget(self.btn_delete_schema, 5, 3)
-        self.tab_schemas.layout.addWidget(self.input_schemas_area, 6, 0, 1, 4)
+        self.tab_schemas.layout.addWidget(self.schemas_progressbar, 5, 2, 1, 2)
+        self.tab_schemas.layout.addWidget(self.btn_delete_schema, 5, 4)
+        self.tab_schemas.layout.addWidget(self.input_schemas_area, 6, 0, 1, 5)
 
 
 if __name__ == '__main__':
@@ -631,4 +664,3 @@ if __name__ == '__main__':
     sys.exit(app.exec())
 
 # посмотреть на ошибку в реальной базе (171 строка check_connect startswith ORA)
-# добавить сохранение путей и схем бд в вкладке со схемами
