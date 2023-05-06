@@ -172,23 +172,9 @@ def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_pa
     :return:
     """
     script = f'select "CONNECTION SUCCESS" as result from dual exit;'
-    script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
-    logger.info(f'Проверка соединения')
-    return cmd
-
-
-# def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password):
-#     """
-#     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
-#     :param sysdba_name: логин пользователя SYSDBA
-#     :param sysdba_password: пароль пользователя SYSDBA
-#     :return:
-#     """
-#     script = f'select "CONNECTION SUCCESS" as result from dual exit;'
-#     sql = script.encode()
-#     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL'
-#     return cmd, sql
+    sql = script.encode()
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL'
+    return cmd, sql
 
 
 def runnings_check_connect(cmd, sql):

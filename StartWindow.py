@@ -34,7 +34,8 @@ from functions import (get_string_show_pdbs,
                        get_string_grant_oracle_privilege,
                        get_string_show_oracle_users,
                        get_string_enabled_oracle_asdco_options,
-                       get_string_import_oracle_schema)
+                       get_string_import_oracle_schema,
+                       runnings_check_connect)
 
 
 WINDOW_WIDTH = 1000
@@ -167,46 +168,46 @@ class Window(QMainWindow):
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
-        oracle_string = get_string_check_oracle_connection(connection_string,
-                                                           sysdba_name,
-                                                           sysdba_password)
-        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        oracle_string, sql = get_string_check_oracle_connection(connection_string,
+                                                                sysdba_name,
+                                                                sysdba_password)
+        result = runnings_check_connect(oracle_string, sql)
         if result.startswith('ORA'):
             self.input_main_area.appendPlainText('Ошибка при проверки подключения к БД')
             logger.info('Ошибка при проверки подключения к БД')
         else:
             self.input_main_area.appendPlainText('Успешное подключение к БД')
             logger.info('Успешное подключение к БД')
-        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
-        try:
-            if self.input_newpdb.text().upper() == '':
-                self.input_main_area.appendPlainText('Имя PDB не указано')
-                logger.info('Имя PDB не указано. Кнопка осталась заблокирована')
-            elif self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
-                self.input_main_area.appendPlainText('Указанная PDB и существующая база данных идентичны')
-                logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
-            elif self.input_newpdb.text().upper() in self.pdb_name_list:
-                self.input_main_area.appendPlainText('Указанная база данных ПРИСУТСТВУЕТ в списке')
+            self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
+            try:
+                if self.input_newpdb.text().upper() == '':
+                    self.input_main_area.appendPlainText('Имя PDB не указано')
+                    logger.info('Имя PDB не указано. Кнопка осталась заблокирована')
+                elif self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
+                    self.input_main_area.appendPlainText('Указанная PDB и существующая база данных идентичны')
+                    logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
+                elif self.input_newpdb.text().upper() in self.pdb_name_list:
+                    self.input_main_area.appendPlainText('Указанная база данных ПРИСУТСТВУЕТ в списке')
+                    self.btn_clone_pdb.setEnabled(True)
+                    self.btn_delete_pdb.setEnabled(True)
+                    self.btn_make_pdb_for_write.setEnabled(True)
+                    logger.info('Указанная база данных ПРИСУТСТВУЕТ в списке. Кнопки разблокированы')
+                elif self.input_newpdb.text().upper() not in self.pdb_name_list:
+                    self.input_main_area.appendPlainText('Введена новая PDB')
+                    self.btn_clone_pdb.setEnabled(True)
+                    self.btn_delete_pdb.setEnabled(True)
+                    self.btn_make_pdb_for_write.setEnabled(True)
+                    logger.info('Указанная база данных ОТСУТСТВУЕТ в списке PDB. Введена новая PDB. Кнопки разблокированы')
+                else:
+                    self.input_main_area.appendPlainText('Неизвестная ошибка. Кнопки заблокированы')
+                    logger.info('Неизвестная ошибка. Кнопки заблокированы')
+                    logger.info(traceback.format_exc())
+            except AttributeError:
+                self.input_main_area.appendPlainText('Список баз данных пуст. Использована сохраненное имя PDB')
                 self.btn_clone_pdb.setEnabled(True)
                 self.btn_delete_pdb.setEnabled(True)
                 self.btn_make_pdb_for_write.setEnabled(True)
-                logger.info('Указанная база данных ПРИСУТСТВУЕТ в списке. Кнопки разблокированы')
-            elif self.input_newpdb.text().upper() not in self.pdb_name_list:
-                self.input_main_area.appendPlainText('Введена новая PDB')
-                self.btn_clone_pdb.setEnabled(True)
-                self.btn_delete_pdb.setEnabled(True)
-                self.btn_make_pdb_for_write.setEnabled(True)
-                logger.info('Указанная база данных ОТСУТСТВУЕТ в списке PDB. Введена новая PDB. Кнопки разблокированы')
-            else:
-                self.input_main_area.appendPlainText('Неизвестная ошибка. Кнопки заблокированы')
-                logger.info('Неизвестная ошибка. Кнопки заблокированы')
-                logger.info(traceback.format_exc())
-        except AttributeError:
-            self.input_main_area.appendPlainText('Список баз данных пуст. Использована сохраненное имя PDB')
-            self.btn_clone_pdb.setEnabled(True)
-            self.btn_delete_pdb.setEnabled(True)
-            self.btn_make_pdb_for_write.setEnabled(True)
-            logger.info('Список баз данных пуст. Использована сохраненное имя PDB. Кнопки разблокированы')
+                logger.info('Список баз данных пуст. Использована сохраненное имя PDB. Кнопки разблокированы')
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
         return "Функция 'ПРОВЕРКА СОЕДИНЕНИЯ С БД' выполнена успешно"
 
