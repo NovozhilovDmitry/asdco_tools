@@ -115,7 +115,7 @@ class Window(QMainWindow):
         """
         :return: передача функции по проверки pdb в отдельном потоке
         """
-        logger.info("Функция 'ПОКАЗАТЬ СУЩЕСТВУЮЩИЕ PDB' запущена")
+        logger.info('Функция просмотра существующие PDB запущена')
         worker = Worker(self.fn_check_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -148,13 +148,13 @@ class Window(QMainWindow):
         for i in self.pdb_name_list:
             self.list_pdb.addItem(i)
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
-        return "Функция 'ПОКАЗАТЬ СУЩЕСТВУЮЩИЕ PDB' выполнена успешно"
+        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
 
     def thread_check_connection(self):
         """
         :return: передача функции по ппроверке подключения к cdb в отдельном потоке
         """
-        logger.info("Функция 'ПРОВЕРИТЬ ПОДКЛЮЧЕНИЕ под ролью SYSDBA на базе CDB запущена, на базе PDB' запущена")
+        logger.info('Функция проверки подключения к PDB запущена')
         worker = Worker(self.fn_check_connect)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -209,13 +209,13 @@ class Window(QMainWindow):
                 self.btn_make_pdb_for_write.setEnabled(True)
                 logger.info('Список баз данных пуст. Использована сохраненное имя PDB. Кнопки разблокированы')
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
-        return "Функция 'ПРОВЕРКА СОЕДИНЕНИЯ С БД' выполнена успешно"
+        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
 
     def thread_cloning_pdb(self):
         """
         :return: передача функции клонирования pdb в отдельном потоке
         """
-        logger.info("Функция 'КЛОНИРОВАНИЕ PDB' запущена")
+        logger.info('Функция клонирования PDB запущена')
         worker = Worker(self.fn_cloning_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -245,13 +245,13 @@ class Window(QMainWindow):
         self.btn_make_pdb_for_write.setEnabled(True)
         self.input_main_area.appendPlainText(result)
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
-        return f"Клонирование PDB завершено. Имя новой PDB {pdb_name_clone}"
+        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. Клонирование PDB завершено. Имя новой PDB {pdb_name_clone}'
 
     def thread_deleting_pdb(self):
         """
         :return: передача функции удаления pdb в отдельном потоке
         """
-        logger.info("Функция 'УДАЛИТЬ PDB' запущена")
+        logger.info('Функция удаления PDB запущена')
         worker = Worker(self.fn_deleting_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -279,13 +279,13 @@ class Window(QMainWindow):
         self.btn_make_pdb_for_write.setEnabled(True)
         self.input_main_area.appendPlainText(result)
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
-        return f"{pdb_name} удалена"
+        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. {pdb_name} удалена'
 
     def thread_make_pdb_writable(self):
         """
         :return: передача функции по переводу pdb из режима только для чтения в отдельном потоке
         """
-        logger.info("Функция 'СДЕЛАТЬ PDB ДОСТУПНОЙ ДЛЯ ЗАПИСИ' запущена")
+        logger.info("Функция для перевода PDB в режим записи запущена")
         worker = Worker(self.fn_writable_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -307,7 +307,7 @@ class Window(QMainWindow):
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         self.input_main_area.appendPlainText('PDB переведена в режим доступной для записи \n' + result)
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
-        return f'PDB {pdb_name} переведена в режим доступной для записи'
+        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. PDB {pdb_name} переведена в режим доступной для записи'
 
     def thread_creating_schemas(self):
         self.schemas_progressbar.setRange(0, 0)
@@ -596,7 +596,7 @@ class Window(QMainWindow):
         self.pdb_schema_name5 = QLineEdit()
         self.pdb_schema_name5.setPlaceholderText('Имя схемы в дампе')
         self.btn_create_schema = QPushButton('Создать схему')
-        self.btn_create_schema.clicked.connect(self.fn_creating_schemas)
+        self.btn_create_schema.clicked.connect(self.thread_creating_schemas)
         self.btn_delete_schema = QPushButton('Удалить схему')
         self.btn_delete_schema.clicked.connect(self.fn_deleting_schemas)
         self.path_schema1 = QLineEdit()
