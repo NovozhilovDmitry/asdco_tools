@@ -21,7 +21,7 @@ def create_script_file(script):  # переписать с os на pathlib
     try:
         if not os.path.isdir(directory_name):
             os.makedirs(directory_name)
-            logger.info(f'Создана директорич {directory_name} для временного размещения скриптов')
+            logger.info(f'Создана директория {directory_name} для временного размещения скриптов')
         with open(file_name, 'w') as file:
             file.write(script)
         logger.info(f'Создан временный файл скрипта {file_name}')
@@ -171,44 +171,36 @@ def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_pa
     :param sysdba_password: пароль пользователя SYSDBA
     :return:
     """
-    script = f'select "CONNECTION SUCCESS" as result from dual exit;'
-    sql = script.encode()
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL'
-    return cmd, sql
+    script = f"""select "CONNECTION SUCCESS" as result from dual;
+exit;"""
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL as sysdba @{script_file}'
+    return cmd
 
 
-def runnings_check_connect(cmd, sql):
-    """
-    функция запускает скрипт проверки подключения (и только)
-    :param cmd: строка подключения из функции
-    :param sql: sql скрипт
-    :return: возвращает результат выполнения скрипта
-    """
-    result = subprocess.run(cmd, input=sql, stdout=subprocess.PIPE).stdout.decode('1251')
-    return result
-
-
-# код создания схем
-def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, schema_name, schema_password):
+def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, schema_name, schema_password, bd_name):
     """
         sqlplus c##devop/123devop@localhost/ASDCO.localdomain as sysdba
         create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
     """
-    script = f'create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;exit;'
+    script = f"""alter session set container={bd_name};
+create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
+exit;"""
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL as sysdba @{script_file}'
     logger.info(f'Создание схемы {schema_name}')
     return cmd
 
 
-def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name):
+def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name, bd_name):
     """
         sqlplus c##devop/123devop@localhost/ASDCO.localdomain as sysdba
         grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
         ...
         grant read,write on directory DATA_PUMP_DIR to {schema_name};
     """
-    script = f"""grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
+    script = f"""alter session set container={bd_name};
+grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
 grant DBA to {schema_name};
 grant FLASHBACK ANY TABLE,UNLIMITED TABLESPACE, CREATE ANY DIRECTORY, ALTER SESSION, SELECT ANY DICTIONARY to {schema_name};
 grant SELECT on V_$SESSION to {schema_name};
@@ -237,7 +229,7 @@ grant read,write on directory {DATA_PUMP_DIR} to {schema_name};
     return cmd
 
 
-def get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string):
+def get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string, bd_name):
     """
         sqlplus credit/credit@localhost/ASDCO.localdomain
         alter session set NLS_DATE_FORMAT = 'YYYY.MM.DD HH24:MI:SS';
@@ -245,7 +237,8 @@ def get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string
         set linesize 60;
         select USERNAME, CREATED from dba_users where COMMON='NO';
     """
-    script = f"""column USERNAME format A40;
+    script = f"""alter session set container={bd_name};
+column USERNAME format A40;
 alter session set NLS_DATE_FORMAT = 'YYYY.MM.DD HH24:MI:SS';
 set linesize 60;
 select USERNAME, CREATED from dba_users where COMMON='NO';

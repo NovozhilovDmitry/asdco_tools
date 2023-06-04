@@ -34,8 +34,7 @@ from functions import (get_string_show_pdbs,
                        get_string_grant_oracle_privilege,
                        get_string_show_oracle_users,
                        get_string_enabled_oracle_asdco_options,
-                       get_string_import_oracle_schema,
-                       runnings_check_connect)
+                       get_string_import_oracle_schema)
 
 
 WINDOW_WIDTH = 1000
@@ -168,46 +167,38 @@ class Window(QMainWindow):
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
-        oracle_string, sql = get_string_check_oracle_connection(connection_string,
-                                                                sysdba_name,
-                                                                sysdba_password)
-        result = runnings_check_connect(oracle_string, sql)
-        if result.startswith('ORA'):
-            self.input_main_area.appendPlainText('Ошибка при проверки подключения к БД')
-            logger.info('Ошибка при проверки подключения к БД')
-        else:
-            self.input_main_area.appendPlainText('Успешное подключение к БД')
-            logger.info('Успешное подключение к БД')
-            self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
-            try:
-                if self.input_newpdb.text().upper() == '':
-                    self.input_main_area.appendPlainText('Имя PDB не указано')
-                    logger.info('Имя PDB не указано. Кнопка осталась заблокирована')
-                elif self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
-                    self.input_main_area.appendPlainText('Указанная PDB и существующая база данных идентичны')
-                    logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
-                elif self.input_newpdb.text().upper() in self.pdb_name_list:
-                    self.input_main_area.appendPlainText('Указанная база данных ПРИСУТСТВУЕТ в списке')
-                    self.btn_clone_pdb.setEnabled(True)
-                    self.btn_delete_pdb.setEnabled(True)
-                    self.btn_make_pdb_for_write.setEnabled(True)
-                    logger.info('Указанная база данных ПРИСУТСТВУЕТ в списке. Кнопки разблокированы')
-                elif self.input_newpdb.text().upper() not in self.pdb_name_list:
-                    self.input_main_area.appendPlainText('Введена новая PDB')
-                    self.btn_clone_pdb.setEnabled(True)
-                    self.btn_delete_pdb.setEnabled(True)
-                    self.btn_make_pdb_for_write.setEnabled(True)
-                    logger.info('Указанная база данных ОТСУТСТВУЕТ в списке PDB. Введена новая PDB. Кнопки разблокированы')
-                else:
-                    self.input_main_area.appendPlainText('Неизвестная ошибка. Кнопки заблокированы')
-                    logger.info('Неизвестная ошибка. Кнопки заблокированы')
-                    logger.info(traceback.format_exc())
-            except AttributeError:
-                self.input_main_area.appendPlainText('Список баз данных пуст. Использована сохраненное имя PDB')
+        oracle_string = get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password)
+        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        self.input_main_area.appendPlainText(result)
+        try:
+            if self.input_newpdb.text().upper() == '':
+                self.input_main_area.appendPlainText('Имя PDB не указано')
+                logger.info('Имя PDB не указано. Кнопка осталась заблокирована')
+            elif self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
+                self.input_main_area.appendPlainText('Указанная PDB и существующая база данных идентичны')
+                logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
+            elif self.input_newpdb.text().upper() in self.pdb_name_list:
+                self.input_main_area.appendPlainText('Указанная база данных ПРИСУТСТВУЕТ в списке')
                 self.btn_clone_pdb.setEnabled(True)
                 self.btn_delete_pdb.setEnabled(True)
                 self.btn_make_pdb_for_write.setEnabled(True)
-                logger.info('Список баз данных пуст. Использована сохраненное имя PDB. Кнопки разблокированы')
+                logger.info('Указанная база данных ПРИСУТСТВУЕТ в списке. Кнопки разблокированы')
+            elif self.input_newpdb.text().upper() not in self.pdb_name_list:
+                self.input_main_area.appendPlainText('Введена новая PDB')
+                self.btn_clone_pdb.setEnabled(True)
+                self.btn_delete_pdb.setEnabled(True)
+                self.btn_make_pdb_for_write.setEnabled(True)
+                logger.info('Введена новая PDB. Кнопки разблокированы')
+            else:
+                self.input_main_area.appendPlainText('Неизвестная ошибка. Кнопки заблокированы')
+                logger.info('Неизвестная ошибка. Кнопки заблокированы')
+                logger.info(traceback.format_exc())
+        except AttributeError:
+            self.input_main_area.appendPlainText('Список баз данных пуст. Использовано сохраненное имя PDB')
+            self.btn_clone_pdb.setEnabled(True)
+            self.btn_delete_pdb.setEnabled(True)
+            self.btn_make_pdb_for_write.setEnabled(True)
+            logger.info('Список баз данных пуст. Использована сохраненное имя PDB. Кнопки разблокированы')
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
 
@@ -320,7 +311,7 @@ class Window(QMainWindow):
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
-
+        bd_name = self.list_pdb.currentText().upper()
         checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
         format_checked_schemas = ', '.join(checked_schemas)
         self.input_schemas_area.append(f'Создание схем: {format_checked_schemas}')
@@ -331,27 +322,33 @@ class Window(QMainWindow):
                                                             sysdba_name,
                                                             sysdba_password,
                                                             name,
-                                                            identified)
+                                                            identified,
+                                                            bd_name)
             result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
             self.input_schemas_area.append(result)
-            check_result_for_privileges = self._grant_privilege_schemas(connection_string,
-                                                                        sysdba_name,
-                                                                        sysdba_password,
-                                                                        schema_name)
+            check_result_for_privileges = self.grant_privilege_schemas(connection_string,
+                                                                       sysdba_name,
+                                                                       sysdba_password,
+                                                                       schema_name,
+                                                                       bd_name)
             self.input_schemas_area.append(check_result_for_privileges)
-            show_schemas_from_pdb = self._show_shemas(connection_string, sysdba_name, sysdba_password)
+            show_schemas_from_pdb = self.show_shemas(connection_string, sysdba_name, sysdba_password, bd_name)
             self.input_schemas_area.append(show_schemas_from_pdb)
             # __import_schemas()  не забыть добавить имя pdb, добавить графическое поле с именем схемы в дампе
             # __enabled_schemes_options()
         self.schemas_progressbar.setRange(1, 1)
 
-    def _grant_privilege_schemas(self, connection_string, sysdba_name, sysdba_password, schema_name):
-        oracle_string = get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name)
+    def grant_privilege_schemas(self, connection_string, sysdba_name, sysdba_password, schema_name, bd_name):
+        oracle_string = get_string_grant_oracle_privilege(connection_string,
+                                                          sysdba_name,
+                                                          sysdba_password,
+                                                          schema_name,
+                                                          bd_name)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         return result
 
-    def _show_shemas(self, connection_string, sysdba_name, sysdba_password):
-        oracle_string = get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string)
+    def show_shemas(self, connection_string, sysdba_name, sysdba_password, bd_name):
+        oracle_string = get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string, bd_name)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         return result
 
@@ -480,7 +477,7 @@ class Window(QMainWindow):
 
     def header_layout(self):
         """
-        :return: добавлние виджетов в верхнюю часть интерфейса на главном окне
+        :return: добавление виджетов в верхнюю часть интерфейса на главном окне
         """
         self.label_main_login = QLabel('Пользователь sysdba')
         self.input_main_login = QLineEdit()
