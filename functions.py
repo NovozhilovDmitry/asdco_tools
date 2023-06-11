@@ -171,7 +171,7 @@ def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_pa
     :param sysdba_password: пароль пользователя SYSDBA
     :return:
     """
-    script = f"""select "CONNECTION SUCCESS" as result from dual;
+    script = f"""select 'CONNECTION SUCCESS' as result from dual;
 exit;"""
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL as sysdba @{script_file}'
@@ -222,6 +222,7 @@ grant EXECUTE on CheckASDCOtoAPOuniqueness to {schema_name};
 grant execute on add_DateField to {schema_name};
 grant execute on formatPrecision to {schema_name};
 grant read,write on directory {DATA_PUMP_DIR} to {schema_name};
+exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL as sysdba @{script_file}'
@@ -242,6 +243,7 @@ column USERNAME format A40;
 alter session set NLS_DATE_FORMAT = 'YYYY.MM.DD HH24:MI:SS';
 set linesize 60;
 select USERNAME, CREATED from dba_users where COMMON='NO';
+exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'

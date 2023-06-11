@@ -114,7 +114,7 @@ class Window(QMainWindow):
         """
         :return: передача функции по проверки pdb в отдельном потоке
         """
-        logger.info('Функция просмотра существующие PDB запущена')
+        logger.info('Функция просмотра существующих PDB запущена')
         worker = Worker(self.fn_check_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -236,7 +236,7 @@ class Window(QMainWindow):
         self.btn_make_pdb_for_write.setEnabled(True)
         self.input_main_area.appendPlainText(result)
         self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
-        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. Клонирование PDB завершено. Имя новой PDB {pdb_name_clone}'
+        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. Имя новой PDB {pdb_name_clone}'
 
     def thread_deleting_pdb(self):
         """
@@ -301,7 +301,6 @@ class Window(QMainWindow):
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. PDB {pdb_name} переведена в режим доступной для записи'
 
     def thread_creating_schemas(self):
-        self.schemas_progressbar.setRange(0, 0)
         worker = Worker(self.fn_creating_schemas)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -329,14 +328,13 @@ class Window(QMainWindow):
             check_result_for_privileges = self.grant_privilege_schemas(connection_string,
                                                                        sysdba_name,
                                                                        sysdba_password,
-                                                                       schema_name,
+                                                                       name,
                                                                        bd_name)
             self.input_schemas_area.append(check_result_for_privileges)
             show_schemas_from_pdb = self.show_shemas(connection_string, sysdba_name, sysdba_password, bd_name)
             self.input_schemas_area.append(show_schemas_from_pdb)
             # __import_schemas()  не забыть добавить имя pdb, добавить графическое поле с именем схемы в дампе
             # __enabled_schemes_options()
-        self.schemas_progressbar.setRange(1, 1)
 
     def grant_privilege_schemas(self, connection_string, sysdba_name, sysdba_password, schema_name, bd_name):
         oracle_string = get_string_grant_oracle_privilege(connection_string,
@@ -380,14 +378,10 @@ class Window(QMainWindow):
 
     def fn_set_path_for_dumps(self):
         button = self.sender()
-        get_dir = QFileDialog.getExistingDirectory(self, caption='Выбрать файл')
-        if get_dir:
-            get_dir = get_dir
-        else:
-            get_dir = 'Путь не выбран'
+        get_dir = QFileDialog.getOpenFileName(self, caption='Выбрать файл')
         for i in range(1, 6):
             if button is eval('self.btn_path_schema' + str(i)):
-                eval('self.path_schema' + str(i) + '.setText(get_dir)')
+                eval('self.path_schema' + str(i) + '.setText(get_dir[0])')
 
     def closeEvent(self, event):
         """
@@ -593,7 +587,7 @@ class Window(QMainWindow):
         self.pdb_schema_name5 = QLineEdit()
         self.pdb_schema_name5.setPlaceholderText('Имя схемы в дампе')
         self.btn_create_schema = QPushButton('Создать схему')
-        self.btn_create_schema.clicked.connect(self.thread_creating_schemas)
+        self.btn_create_schema.clicked.connect(self.thread_creating_schemas)  # self.fn_creating_schemas
         self.btn_delete_schema = QPushButton('Удалить схему')
         self.btn_delete_schema.clicked.connect(self.fn_deleting_schemas)
         self.path_schema1 = QLineEdit()
