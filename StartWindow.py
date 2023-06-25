@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (QMainWindow,
                              QTableWidget,
                              QTableWidgetItem,
                              QHeaderView,
-                             QPlainTextEdit,
                              QProgressBar,
                              QFileDialog)
 from functions import (get_string_show_pdbs,
@@ -89,7 +88,6 @@ class Window(QMainWindow):
         self.header_layout()  # функция с добавленными элементами интерфейса для верхней части
         self.pdb_tab()  # функция с добавленными элементами вкладки pdb
         self.schemas_tab()  # функция с добавленными элементами вкладки со схемами
-        # добавление на макеты
         self.tab_schemas.setLayout(self.tab_schemas.layout)
         self.main_layout.addLayout(self.top_grid_layout)
         self.main_layout.addWidget(self.tabs)
@@ -115,6 +113,7 @@ class Window(QMainWindow):
         :return: передача функции по проверки pdb в отдельном потоке
         """
         logger.info('Функция просмотра существующих PDB запущена')
+        self.pdb_progressbar.setValue(0)
         worker = Worker(self.fn_check_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -130,7 +129,6 @@ class Window(QMainWindow):
         sysdba_password = self.input_main_password.text()
         oracle_string = get_string_show_pdbs(sysdba_name, sysdba_password, connection_string)
         result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string, return_split_result=True)
-        self.input_main_area.appendPlainText(result)
         self.pdb_name_list = formating_sqlplus_results_and_return_pdb_names(list_result)
         self.table.setRowCount(len(self.pdb_name_list))
         self.table.setColumnCount(4)
@@ -146,7 +144,7 @@ class Window(QMainWindow):
         self.list_pdb.clear()
         for i in self.pdb_name_list:
             self.list_pdb.addItem(i)
-        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
+        self.pdb_progressbar.setValue(1)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
 
     def thread_check_connection(self):
@@ -154,6 +152,7 @@ class Window(QMainWindow):
         :return: передача функции по ппроверке подключения к cdb в отдельном потоке
         """
         logger.info('Функция проверки подключения к PDB запущена')
+        self.pdb_progressbar.setValue(0)
         worker = Worker(self.fn_check_connect)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -169,37 +168,31 @@ class Window(QMainWindow):
         sysdba_password = self.input_main_password.text()
         oracle_string = get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        self.input_main_area.appendPlainText(result)
+        logger.debug(result)
         try:
             if self.input_newpdb.text().upper() == '':
-                self.input_main_area.appendPlainText('Имя PDB не указано')
                 logger.info('Имя PDB не указано. Кнопка осталась заблокирована')
             elif self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
-                self.input_main_area.appendPlainText('Указанная PDB и существующая база данных идентичны')
                 logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
             elif self.input_newpdb.text().upper() in self.pdb_name_list:
-                self.input_main_area.appendPlainText('Указанная база данных ПРИСУТСТВУЕТ в списке')
                 self.btn_clone_pdb.setEnabled(True)
                 self.btn_delete_pdb.setEnabled(True)
                 self.btn_make_pdb_for_write.setEnabled(True)
                 logger.info('Указанная база данных ПРИСУТСТВУЕТ в списке. Кнопки разблокированы')
             elif self.input_newpdb.text().upper() not in self.pdb_name_list:
-                self.input_main_area.appendPlainText('Введена новая PDB')
                 self.btn_clone_pdb.setEnabled(True)
                 self.btn_delete_pdb.setEnabled(True)
                 self.btn_make_pdb_for_write.setEnabled(True)
                 logger.info('Введена новая PDB. Кнопки разблокированы')
             else:
-                self.input_main_area.appendPlainText('Неизвестная ошибка. Кнопки заблокированы')
                 logger.info('Неизвестная ошибка. Кнопки заблокированы')
                 logger.info(traceback.format_exc())
         except AttributeError:
-            self.input_main_area.appendPlainText('Список баз данных пуст. Использовано сохраненное имя PDB')
             self.btn_clone_pdb.setEnabled(True)
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
             logger.info('Список баз данных пуст. Использована сохраненное имя PDB. Кнопки разблокированы')
-        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
+        self.pdb_progressbar.setValue(1)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
 
     def thread_cloning_pdb(self):
@@ -234,8 +227,7 @@ class Window(QMainWindow):
         self.btn_clone_pdb.setEnabled(True)
         self.btn_delete_pdb.setEnabled(True)
         self.btn_make_pdb_for_write.setEnabled(True)
-        self.input_main_area.appendPlainText(result)
-        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
+        logger.debug(result)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. Имя новой PDB {pdb_name_clone}'
 
     def thread_deleting_pdb(self):
@@ -268,8 +260,7 @@ class Window(QMainWindow):
         self.btn_clone_pdb.setEnabled(True)
         self.btn_delete_pdb.setEnabled(True)
         self.btn_make_pdb_for_write.setEnabled(True)
-        self.input_main_area.appendPlainText(result)
-        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
+        logger.debug(result)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. {pdb_name} удалена'
 
     def thread_make_pdb_writable(self):
@@ -296,9 +287,10 @@ class Window(QMainWindow):
                                                      schema_password,
                                                      pdb_name)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        self.input_main_area.appendPlainText('PDB переведена в режим доступной для записи \n' + result)
-        self.input_main_area.verticalScrollBar().setValue(self.input_main_area.verticalScrollBar().maximum())
-        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. PDB {pdb_name} переведена в режим доступной для записи'
+        logger.info('PDB переведена в режим доступной для записи')
+        logger.debug(result)
+        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. ' \
+               f'PDB {pdb_name} переведена в режим доступной для записи'
 
     def thread_creating_schemas(self):
         worker = Worker(self.fn_creating_schemas)  # функция, которая выполняется в потоке
@@ -364,6 +356,12 @@ class Window(QMainWindow):
                                                                 schema_name, schema_password)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         return result
+
+    def thread_deleting_schemas(self):
+        worker = Worker(self.fn_deleting_schemas)  # функция, которая выполняется в потоке
+        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
+        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
+        self.threadpool.start(worker)
 
     def fn_deleting_schemas(self):
         checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
@@ -481,6 +479,7 @@ class Window(QMainWindow):
         self.line_main_connect = QLineEdit()
         self.label_pdb = QLabel('Имя PDB')
         self.list_pdb = QComboBox()
+        self.list_pdb.setToolTip('Имя PDB используется как исходная база для клонирования')
         self.line_for_combobox = QLineEdit()
         self.list_pdb.setLineEdit(self.line_for_combobox)
         self.btn_current_pdb = QPushButton('Показать существующие pdb')
@@ -515,10 +514,9 @@ class Window(QMainWindow):
         self.btn_make_pdb_for_write = QPushButton('Сделать PDB доступной для записи')
         self.btn_make_pdb_for_write.clicked.connect(self.thread_make_pdb_writable)
         self.btn_make_pdb_for_write.setEnabled(False)
-        self.input_main_area = QPlainTextEdit()
-        self.input_main_area.setFixedSize(WINDOW_WIDTH, 100)
         self.pdb_progressbar = QProgressBar()
         self.table = QTableWidget()
+        self.table.setSortingEnabled(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tab_control.layout.addWidget(self.input_newpdb, 1, 0)
         self.tab_control.layout.addWidget(self.btn_connect, 1, 1)
@@ -527,7 +525,6 @@ class Window(QMainWindow):
         self.tab_control.layout.addWidget(self.btn_make_pdb_for_write, 3, 0)
         self.tab_control.layout.addWidget(self.pdb_progressbar, 3, 1)
         self.tab_control.layout.addWidget(self.btn_delete_pdb, 3, 2)
-        self.tab_control.layout.addWidget(self.input_main_area, 5, 0, 1, 3)
         self.tab_control.setLayout(self.tab_control.layout)
 
     def schemas_tab(self):
@@ -589,7 +586,7 @@ class Window(QMainWindow):
         self.btn_create_schema = QPushButton('Создать схему')
         self.btn_create_schema.clicked.connect(self.thread_creating_schemas)  # self.fn_creating_schemas
         self.btn_delete_schema = QPushButton('Удалить схему')
-        self.btn_delete_schema.clicked.connect(self.fn_deleting_schemas)
+        self.btn_delete_schema.clicked.connect(self.thread_deleting_schemas)
         self.path_schema1 = QLineEdit()
         self.path_schema1.setPlaceholderText('Введите путь или нажмите на кнопку')
         self.btn_path_schema1 = self.path_schema1.addAction(QIcon(self.btn_icon),
@@ -654,5 +651,3 @@ if __name__ == '__main__':
     win = Window()
     win.show()
     sys.exit(app.exec())
-
-# посмотреть на ошибку в реальной базе (171 строка check_connect startswith ORA)
