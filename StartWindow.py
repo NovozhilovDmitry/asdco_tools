@@ -1,5 +1,6 @@
 import sys
 import traceback
+import re
 from myLogging import logger
 from PyQt6.QtGui import QPixmap, QIcon
 from PyQt6.QtCore import QRunnable, QThreadPool, QSettings, QObject, pyqtSignal, pyqtSlot
@@ -61,7 +62,7 @@ class Worker(QRunnable):
         try:  # выполняем переданный из window метод
             result = self.fn(*self.args, **self.kwargs)
         except:
-            traceback.print_exc()  # формирует ошибку?
+            traceback.print_exc()
             exctype, value = sys.exc_info()[:2]
             self.signals.error.emit((exctype, value, traceback.format_exc()))
         else:  # если ошибок не было, то формируем сигнал .result и передаем результат `result`
@@ -169,29 +170,13 @@ class Window(QMainWindow):
         oracle_string = get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         logger.debug(result)
-        try:
-            if self.input_newpdb.text().upper() == '':
-                logger.info('Имя PDB не указано. Кнопка осталась заблокирована')
-            elif self.input_newpdb.text().upper() == self.list_pdb.currentText().upper():
-                logger.info('Указанная PDB и существующая база данных идентичны. Кнопка осталась заблокирована')
-            elif self.input_newpdb.text().upper() in self.pdb_name_list:
-                self.btn_clone_pdb.setEnabled(True)
-                self.btn_delete_pdb.setEnabled(True)
-                self.btn_make_pdb_for_write.setEnabled(True)
-                logger.info('Указанная база данных ПРИСУТСТВУЕТ в списке. Кнопки разблокированы')
-            elif self.input_newpdb.text().upper() not in self.pdb_name_list:
-                self.btn_clone_pdb.setEnabled(True)
-                self.btn_delete_pdb.setEnabled(True)
-                self.btn_make_pdb_for_write.setEnabled(True)
-                logger.info('Введена новая PDB. Кнопки разблокированы')
-            else:
-                logger.info('Неизвестная ошибка. Кнопки заблокированы')
-                logger.info(traceback.format_exc())
-        except AttributeError:
+        ora_not_error = re.search(r'CONNECTION SUCCESS', result)
+        if ora_not_error.group(0):
             self.btn_clone_pdb.setEnabled(True)
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
-            logger.info('Список баз данных пуст. Использована сохраненное имя PDB. Кнопки разблокированы')
+        else:
+            logger.warning(result, exc_info=True)
         self.pdb_progressbar.setValue(1)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
 
@@ -200,6 +185,7 @@ class Window(QMainWindow):
         :return: передача функции клонирования pdb в отдельном потоке
         """
         logger.info('Функция клонирования PDB запущена')
+        self.pdb_progressbar.setValue(0)
         worker = Worker(self.fn_cloning_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -215,19 +201,23 @@ class Window(QMainWindow):
         schema_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
         pdb_name_clone = self.input_newpdb.text().upper()
-        self.btn_clone_pdb.setEnabled(False)
-        self.btn_delete_pdb.setEnabled(False)
-        self.btn_make_pdb_for_write.setEnabled(False)
-        oracle_string = get_string_clone_pdb(connection_string,
-                                             schema_name,
-                                             schema_password,
-                                             pdb_name,
-                                             pdb_name_clone)
-        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        self.btn_clone_pdb.setEnabled(True)
-        self.btn_delete_pdb.setEnabled(True)
-        self.btn_make_pdb_for_write.setEnabled(True)
-        logger.debug(result)
+        if pdb_name_clone == 'ASDCOEMPTY_ETALON' or pdb_name_clone == 'PDB$SEED':
+            logger.warning('Заблокирована попытка клонирования на базу ASDCOEMPTY_ETALON или PDB$SEED')
+        else:
+            self.btn_clone_pdb.setEnabled(False)
+            self.btn_delete_pdb.setEnabled(False)
+            self.btn_make_pdb_for_write.setEnabled(False)
+            oracle_string = get_string_clone_pdb(connection_string,
+                                                 schema_name,
+                                                 schema_password,
+                                                 pdb_name,
+                                                 pdb_name_clone)
+            result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+            self.btn_clone_pdb.setEnabled(True)
+            self.btn_delete_pdb.setEnabled(True)
+            self.btn_make_pdb_for_write.setEnabled(True)
+            logger.debug(result)
+        self.pdb_progressbar.setValue(1)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. Имя новой PDB {pdb_name_clone}'
 
     def thread_deleting_pdb(self):
@@ -235,6 +225,7 @@ class Window(QMainWindow):
         :return: передача функции удаления pdb в отдельном потоке
         """
         logger.info('Функция удаления PDB запущена')
+        self.pdb_progressbar.setValue(0)
         worker = Worker(self.fn_deleting_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -248,19 +239,23 @@ class Window(QMainWindow):
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
-        pdb_name = self.input_newpdb.text().upper()
-        self.btn_clone_pdb.setEnabled(False)
-        self.btn_delete_pdb.setEnabled(False)
-        self.btn_make_pdb_for_write.setEnabled(False)
-        oracle_string = get_string_delete_pdb(connection_string,
-                                              schema_name,
-                                              schema_password,
-                                              pdb_name)
-        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        self.btn_clone_pdb.setEnabled(True)
-        self.btn_delete_pdb.setEnabled(True)
-        self.btn_make_pdb_for_write.setEnabled(True)
+        pdb_name = self.list_pdb.currentText().upper()
+        if pdb_name == 'ASDCOEMPTY_ETALON' or pdb_name == 'PDB$SEED':
+            logger.warning('Заблокирована попытка удаления на базу ASDCOEMPTY_ETALON или PDB$SEED')
+        else:
+            self.btn_clone_pdb.setEnabled(False)
+            self.btn_delete_pdb.setEnabled(False)
+            self.btn_make_pdb_for_write.setEnabled(False)
+            oracle_string = get_string_delete_pdb(connection_string,
+                                                  schema_name,
+                                                  schema_password,
+                                                  pdb_name)
+            result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+            self.btn_clone_pdb.setEnabled(True)
+            self.btn_delete_pdb.setEnabled(True)
+            self.btn_make_pdb_for_write.setEnabled(True)
         logger.debug(result)
+        self.pdb_progressbar.setValue(1)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. {pdb_name} удалена'
 
     def thread_make_pdb_writable(self):
@@ -342,7 +337,6 @@ class Window(QMainWindow):
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         return result
 
-# импорт схем еще не закончен
     def __import_schemas(self, connection_string, pdb_name, schema_name,
                          schema_password, schema_name_in_dump, schema_dump_file):
         oracle_string = get_string_import_oracle_schema(connection_string, pdb_name, schema_name,
@@ -350,7 +344,6 @@ class Window(QMainWindow):
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         return result
 
-# эта функция тоже еще не закончена
     def __enabled_schemes_options(self, connection_string, pdb_name, schema_name, schema_password):
         oracle_string = get_string_enabled_oracle_asdco_options(connection_string, pdb_name,
                                                                 schema_name, schema_password)
@@ -386,19 +379,16 @@ class Window(QMainWindow):
         :param event: событие, которое можно принять или переопределить при закрытии
         :return: охранение настроек при закрытии приложения
         """
-        # настройки значений из верхней панели
         self.settings.setValue('login', self.input_main_login.text())
         self.settings.setValue('connectline', self.line_main_connect.text())
         self.settings.setValue('password', self.input_main_password.text())
         self.settings.setValue('PDB_name', self.list_pdb.currentText())
-        # сохранение размеров и положения окна
         self.settings.beginGroup('GUI')
         self.settings.setValue('width', self.geometry().width())
         self.settings.setValue('height', self.geometry().height())
         self.settings.setValue('x', self.geometry().x())
         self.settings.setValue('y', self.geometry().y())
         self.settings.endGroup()
-        # сохранение настроек схем
         self.settings.beginGroup('SCHEMAS')
         self.settings.setValue('credit1_schemaname', self.input_schema1_name.text())
         self.settings.setValue('deposit1_schemaname', self.input_schema2_name.text())
@@ -429,12 +419,10 @@ class Window(QMainWindow):
         """
         :return: заполнение полей из настроек
         """
-        # главное окно
         self.input_main_login.setText(self.settings.value('login'))
         self.input_main_password.setText(self.settings.value('password'))
         self.line_main_connect.setText(self.settings.value('connectline'))
         self.list_pdb.setCurrentText(self.settings.value('PDB_name'))
-        # вкладка со схемами
         self.input_schema1_name.setText(self.settings.value('SCHEMAS/credit1_schemaname'))
         self.input_schema2_name.setText(self.settings.value('SCHEMAS/deposit1_schemaname'))
         self.input_schema3_name.setText(self.settings.value('SCHEMAS/credit1_ar_schemaname'))
@@ -479,7 +467,6 @@ class Window(QMainWindow):
         self.line_main_connect = QLineEdit()
         self.label_pdb = QLabel('Имя PDB')
         self.list_pdb = QComboBox()
-        self.list_pdb.setToolTip('Имя PDB используется как исходная база для клонирования')
         self.line_for_combobox = QLineEdit()
         self.list_pdb.setLineEdit(self.line_for_combobox)
         self.btn_current_pdb = QPushButton('Показать существующие pdb')
@@ -501,10 +488,11 @@ class Window(QMainWindow):
         self.tabs.addTab(self.tab_control, "Управление PDB")
         self.input_newpdb = QLineEdit()
         self.input_newpdb.setPlaceholderText('Введите имя PDB')
+        self.input_newpdb.setToolTip('Используется только как имя новой PDB')
         self.btn_connect = QPushButton('Проверить подключение')
         self.btn_connect.clicked.connect(self.thread_check_connection)
         self.btn_connect.setStyleSheet('width: 300')
-        self.btn_clone_pdb = QPushButton('Клонировать PDB')  # тут же сделать pdb writeble
+        self.btn_clone_pdb = QPushButton('Клонировать PDB')
         self.btn_clone_pdb.setEnabled(False)
         self.btn_clone_pdb.clicked.connect(self.thread_cloning_pdb)
         self.btn_clone_pdb.setStyleSheet('width: 300')
@@ -584,7 +572,7 @@ class Window(QMainWindow):
         self.pdb_schema_name5 = QLineEdit()
         self.pdb_schema_name5.setPlaceholderText('Имя схемы в дампе')
         self.btn_create_schema = QPushButton('Создать схему')
-        self.btn_create_schema.clicked.connect(self.thread_creating_schemas)  # self.fn_creating_schemas
+        self.btn_create_schema.clicked.connect(self.thread_creating_schemas)
         self.btn_delete_schema = QPushButton('Удалить схему')
         self.btn_delete_schema.clicked.connect(self.thread_deleting_schemas)
         self.path_schema1 = QLineEdit()
