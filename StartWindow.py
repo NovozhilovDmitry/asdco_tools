@@ -1,6 +1,7 @@
 import sys
 import traceback
 import re
+import hashlib
 from myLogging import logger
 from PyQt6.QtGui import QPixmap, QIcon
 from PyQt6.QtCore import QRunnable, QThreadPool, QSettings, QObject, pyqtSignal, pyqtSlot
@@ -39,6 +40,7 @@ from functions import (get_string_show_pdbs,
 
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 600
+MD5_HEX = 'cdb17afa0d724dbdcc7449c602228c30'
 
 
 class WorkerSignals(QObject):
@@ -169,7 +171,7 @@ class Window(QMainWindow):
         sysdba_password = self.input_main_password.text()
         oracle_string = get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        logger.debug(result)
+        logger.info(result)
         ora_not_error = re.search(r'CONNECTION SUCCESS', result)
         if ora_not_error.group(0):
             self.btn_clone_pdb.setEnabled(True)
@@ -216,7 +218,7 @@ class Window(QMainWindow):
             self.btn_clone_pdb.setEnabled(True)
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
-            logger.debug(result)
+            logger.info(result)
         self.pdb_progressbar.setValue(1)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. Имя новой PDB {pdb_name_clone}'
 
@@ -254,7 +256,7 @@ class Window(QMainWindow):
             self.btn_clone_pdb.setEnabled(True)
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
-        logger.debug(result)
+        logger.info(result)
         self.pdb_progressbar.setValue(1)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. {pdb_name} удалена'
 
@@ -283,7 +285,7 @@ class Window(QMainWindow):
                                                      pdb_name)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         logger.info('PDB переведена в режим доступной для записи')
-        logger.debug(result)
+        logger.info(result)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. ' \
                f'PDB {pdb_name} переведена в режим доступной для записи'
 
@@ -381,7 +383,7 @@ class Window(QMainWindow):
         """
         self.settings.setValue('login', self.input_main_login.text())
         self.settings.setValue('connectline', self.line_main_connect.text())
-        self.settings.setValue('password', self.input_main_password.text())
+        self.settings.setValue('password', hashlib.md5(self.input_main_password.text().encode()).hexdigest())
         self.settings.setValue('PDB_name', self.list_pdb.currentText())
         self.settings.beginGroup('GUI')
         self.settings.setValue('width', self.geometry().width())
@@ -412,7 +414,7 @@ class Window(QMainWindow):
         self.settings.setValue('reserve_dump_path', self.path_schema5.text())
         self.settings.endGroup()
         delete_temp_directory()  # удалить каталог temp
-        logger.debug('Пользовательские настройки сохранены')
+        logger.info('Пользовательские настройки сохранены')
         logger.info(f'Файл {__file__} закрыт')
 
     def initialization_settings(self):
@@ -420,7 +422,6 @@ class Window(QMainWindow):
         :return: заполнение полей из настроек
         """
         self.input_main_login.setText(self.settings.value('login'))
-        self.input_main_password.setText(self.settings.value('password'))
         self.line_main_connect.setText(self.settings.value('connectline'))
         self.list_pdb.setCurrentText(self.settings.value('PDB_name'))
         self.input_schema1_name.setText(self.settings.value('SCHEMAS/credit1_schemaname'))
@@ -449,11 +450,15 @@ class Window(QMainWindow):
             x = int(self.settings.value('GUI/x'))
             y = int(self.settings.value('GUI/y'))
             self.setGeometry(x, y, width, height)
-            logger.debug('Настройки размеров окна загружены.')
+            logger.info('Настройки размеров окна загружены.')
         except TypeError:
             pass
             logger.info('Настройки размеров окна НЕ загружены. Установлены размеры по умолчанию')
-        logger.debug('Файл с пользовательскими настройками проинициализирован')
+        if self.settings.value('password') == MD5_HEX:
+            self.input_main_password.setText('123devop')
+        else:
+            self.input_main_password.setText('')
+        logger.info('Файл с пользовательскими настройками проинициализирован')
 
     def header_layout(self):
         """
