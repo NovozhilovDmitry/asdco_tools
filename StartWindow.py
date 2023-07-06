@@ -110,13 +110,13 @@ class Window(QMainWindow):
         :return: слот для сигнала о завершении потока
         """
         logger.info(self)
+        self.pdb_progressbar.setRange(0, 1)
 
     def thread_check_pdb(self):
         """
         :return: передача функции по проверки pdb в отдельном потоке
         """
         logger.info('Функция просмотра существующих PDB запущена')
-        self.pdb_progressbar.setValue(0)
         worker = Worker(self.fn_check_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -127,6 +127,7 @@ class Window(QMainWindow):
         :param progress_callback: передача результатов из класса потока
         :return: передает сообщение в функцию thread_print_output
         """
+        self.pdb_progressbar.setRange(0, 0)
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
@@ -147,7 +148,6 @@ class Window(QMainWindow):
         self.list_pdb.clear()
         for i in self.pdb_name_list:
             self.list_pdb.addItem(i)
-        self.pdb_progressbar.setValue(1)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
 
     def thread_check_connection(self):
@@ -509,7 +509,6 @@ class Window(QMainWindow):
         self.btn_make_pdb_for_write.setEnabled(False)
         self.pdb_progressbar = QProgressBar()
         self.table = QTableWidget()
-        self.table.setSortingEnabled(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tab_control.layout.addWidget(self.input_newpdb, 1, 0)
         self.tab_control.layout.addWidget(self.btn_connect, 1, 1)
