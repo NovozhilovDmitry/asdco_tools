@@ -155,7 +155,6 @@ class Window(QMainWindow):
         :return: передача функции по ппроверке подключения к cdb в отдельном потоке
         """
         logger.info('Функция проверки подключения к PDB запущена')
-        self.pdb_progressbar.setValue(0)
         worker = Worker(self.fn_check_connect)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -166,6 +165,7 @@ class Window(QMainWindow):
         :param progress_callback: передача результатов из класса потока
         :return: передает сообщение в функцию thread_print_output
         """
+        self.pdb_progressbar.setRange(0, 0)
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
@@ -177,17 +177,16 @@ class Window(QMainWindow):
             self.btn_clone_pdb.setEnabled(True)
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
+            return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
         else:
             logger.warning(result, exc_info=True)
-        self.pdb_progressbar.setValue(1)
-        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
+            return f'Не удалось подключиться к PDB. Возможны ошибки на сервере (посмотрите логи)'
 
     def thread_cloning_pdb(self):
         """
         :return: передача функции клонирования pdb в отдельном потоке
         """
         logger.info('Функция клонирования PDB запущена')
-        self.pdb_progressbar.setValue(0)
         worker = Worker(self.fn_cloning_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -198,13 +197,17 @@ class Window(QMainWindow):
         :param progress_callback: передача результатов из класса потока
         :return: передает сообщение в функцию thread_print_output
         """
+        self.pdb_progressbar.setRange(0, 0)
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
         pdb_name_clone = self.input_newpdb.text().upper()
         if pdb_name_clone == 'ASDCOEMPTY_ETALON' or pdb_name_clone == 'PDB$SEED':
-            logger.warning('Заблокирована попытка клонирования на базу ASDCOEMPTY_ETALON или PDB$SEED')
+            logger.error('Заблокирована попытка клонирования на базу ASDCOEMPTY_ETALON или PDB$SEED')
+            return f'Функция {traceback.extract_stack()[-1][2]} выполнена, ' \
+                   f'но нельзя использовать в новом имени PDB имена ASDCOEMPTY_ETALON/PDB$SEED'
+
         else:
             self.btn_clone_pdb.setEnabled(False)
             self.btn_delete_pdb.setEnabled(False)
@@ -219,15 +222,13 @@ class Window(QMainWindow):
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
             logger.info(result)
-        self.pdb_progressbar.setValue(1)
-        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. Имя новой PDB {pdb_name_clone}'
+            return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. Имя новой PDB {pdb_name_clone}'
 
     def thread_deleting_pdb(self):
         """
         :return: передача функции удаления pdb в отдельном потоке
         """
         logger.info('Функция удаления PDB запущена')
-        self.pdb_progressbar.setValue(0)
         worker = Worker(self.fn_deleting_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -238,12 +239,15 @@ class Window(QMainWindow):
         :param progress_callback: передача результатов из класса потока
         :return: передает сообщение в функцию thread_print_output
         """
+        self.pdb_progressbar.setRange(0, 0)
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
         if pdb_name == 'ASDCOEMPTY_ETALON' or pdb_name == 'PDB$SEED':
-            logger.warning('Заблокирована попытка удаления на базу ASDCOEMPTY_ETALON или PDB$SEED')
+            logger.error('Заблокирована попытка удаления на базу ASDCOEMPTY_ETALON или PDB$SEED')
+            # всплывающее окно, в котором указано, что удалить ASDCOEMPTY_ETALON/PDB$SEED нельзя
+            return f'Функция {traceback.extract_stack()[-1][2]} выполнена, но нельзя удалять ASDCOEMPTY_ETALON/PDB$SEED'
         else:
             self.btn_clone_pdb.setEnabled(False)
             self.btn_delete_pdb.setEnabled(False)
@@ -256,9 +260,8 @@ class Window(QMainWindow):
             self.btn_clone_pdb.setEnabled(True)
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
-        logger.info(result)
-        self.pdb_progressbar.setValue(1)
-        return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. {pdb_name} удалена'
+            logger.info(result)
+            return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. {pdb_name} удалена'
 
     def thread_make_pdb_writable(self):
         """
@@ -275,6 +278,7 @@ class Window(QMainWindow):
         :param progress_callback: передача результатов из класса потока
         :return: передает сообщение в функцию thread_print_output
         """
+        self.pdb_progressbar.setRange(0, 0)
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
