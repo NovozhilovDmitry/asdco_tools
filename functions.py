@@ -16,11 +16,15 @@ def create_script_file(script):  # переписать с os на pathlib
     :param script: sql скрипт из функций
     :return: создает временный файл с sql запросом
     """
-    directory_name = os.path.join(os.getcwd(), TEMP_DIRECTORY)
-    file_name = os.path.join(os.getcwd(), TEMP_DIRECTORY, f'script_{time.time_ns()}.sql')
+    # directory_name = os.path.join(os.getcwd(), TEMP_DIRECTORY)
+    # file_name = os.path.join(os.getcwd(), TEMP_DIRECTORY, f'script_{time.time_ns()}.sql')
+    directory_name = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
+    file_name = directory_name.joinpath(f'script_{time.time_ns()}.sql')
     try:
-        if not os.path.isdir(directory_name):
-            os.makedirs(directory_name)
+        # if not os.path.isdir(directory_name):
+        # os.makedirs(directory_name)
+        if not pathlib.Path.exists(pathlib.Path.cwd().joinpath(directory_name)):
+            pathlib.Path.cwd().joinpath(directory_name).mkdir(parents=True, exist_ok=True)
             logger.info(f'Создана директория {directory_name} для временного размещения скриптов')
         with open(file_name, 'w') as file:
             file.write(script)
@@ -39,8 +43,8 @@ def delete_temp_directory():
     try:
         shutil.rmtree(cwd_temp_path)
         logger.info(f'директория {TEMP_DIRECTORY} удалена')
-    except FileNotFoundError:
-        pass
+    except FileNotFoundError as error:
+        logger.error(f'невозможно удалить директорию {TEMP_DIRECTORY} по причине {error}')
 
 
 def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):
@@ -132,7 +136,7 @@ def get_string_make_pdb_writable(connection_string, sysdba_name, sysdba_password
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA
     :param pdb_name: имя pdb, у которой убираем режим только для чтения
-    :return:
+    :return: база данных переводится из режима только для чтения в режим записи
     """
     script = f"""set echo on;
 set serveroutput on size unlimited;
@@ -151,7 +155,7 @@ def get_string_delete_pdb(connection_string, sysdba_name, sysdba_password, pdb_n
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA
     :param pdb_name: имя удаляемой pdb
-    :return:
+    :return: база данных удалена
     """
     script = f"""set echo on;
 set serveroutput on size unlimited;
@@ -169,7 +173,7 @@ def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_pa
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA
-    :return:
+    :return: проверяется возможность подключения к pdb
     """
     script = f"""select 'CONNECTION SUCCESS' as result from dual;
 exit;"""
@@ -180,8 +184,13 @@ exit;"""
 
 def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, schema_name, schema_password, bd_name):
     """
-        sqlplus c##devop/123devop@localhost/ASDCO.localdomain as sysdba
-        create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param schema_name: имя новой схемы
+    :param schema_password: пароль для схемы
+    :param bd_name: имя pdb, в которой будет создана схема
+    :return: создана схема
     """
     script = f"""alter session set container={bd_name};
 create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
@@ -194,10 +203,12 @@ exit;"""
 
 def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name, bd_name):
     """
-        sqlplus c##devop/123devop@localhost/ASDCO.localdomain as sysdba
-        grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
-        ...
-        grant read,write on directory DATA_PUMP_DIR to {schema_name};
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param schema_name: имя схемы, которой даются права
+    :param bd_name: имя pdb, в которой создана схема
+    :return: выданы права для схемы
     """
     script = f"""alter session set container={bd_name};
 grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
@@ -232,11 +243,11 @@ exit;
 
 def get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string, bd_name):
     """
-        sqlplus credit/credit@localhost/ASDCO.localdomain
-        alter session set NLS_DATE_FORMAT = 'YYYY.MM.DD HH24:MI:SS';
-        column USERNAME format A40;
-        set linesize 60;
-        select USERNAME, CREATED from dba_users where COMMON='NO';
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param bd_name:
+    :return: имя pdb, в которой проверяются созданные схемы
     """
     script = f"""alter session set container={bd_name};
 column USERNAME format A40;
@@ -253,8 +264,13 @@ exit;
 
 def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, schema_password, schema_name_in_dump, schema_dump_file):
     """
-        imp deposit/deposit@localhost:1521/ASDCO.localdomain FILE='.\dmp\88350_deposit.dmp'
-            FROMUSER=deposit TOUSER=deposit GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param pdb_name:
+    :param schema_name:
+    :param schema_password:
+    :param schema_name_in_dump:
+    :param schema_dump_file:
+    :return:
     """
     cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE'"
     logger.info(f'Вызов оракловского приложения для импортирования БД (imp.exe)')
@@ -262,6 +278,13 @@ def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, sc
 
 
 def get_string_enabled_oracle_asdco_options(connection_string, pdb_name, schema_name, schema_password):
+    """
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param pdb_name: пароль пользователя SYSDBA
+    :param schema_name:
+    :param schema_password:
+    :return:
+    """
     script = f"""-- включение row movement
 begin
 for c in (SELECT table_name FROM user_tables WHERE status = 'VALID' AND temporary = 'N' AND dropped = 'NO' AND table_name != '{schema_name}' AND row_movement != 'ENABLED' AND table_name NOT LIKE 'SYS\_%%')

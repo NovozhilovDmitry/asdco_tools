@@ -21,7 +21,8 @@ from PyQt6.QtWidgets import (QMainWindow,
                              QTableWidgetItem,
                              QHeaderView,
                              QProgressBar,
-                             QFileDialog)
+                             QFileDialog,
+                             QMessageBox)
 from functions import (get_string_show_pdbs,
                        delete_temp_directory,
                        runnings_sqlplus_scripts_with_subprocess,
@@ -40,6 +41,7 @@ from functions import (get_string_show_pdbs,
 
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 600
+TITLE = 'ASDCO TOOLS'
 MD5_HEX = 'cdb17afa0d724dbdcc7449c602228c30'
 
 
@@ -76,7 +78,7 @@ class Worker(QRunnable):
 class Window(QMainWindow):
     def __init__(self):
         super(Window, self).__init__()
-        self.setWindowTitle("ASDCO TOOLS")  # заголовок главного окна
+        self.setWindowTitle(TITLE)  # заголовок главного окна
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
         self.btn_icon = QPixmap("others/folder.png")
         self.layout = QWidget()
@@ -109,14 +111,22 @@ class Window(QMainWindow):
         """
         :return: слот для сигнала о завершении потока
         """
-        logger.info(self)
+        logger.info('Функция выполнена. Прогресс бар установлен на 100%')
         self.pdb_progressbar.setRange(0, 1)
+
+    def msg_window(self, text):
+        dlg = QMessageBox()
+        dlg.setWindowTitle(TITLE)
+        dlg.setText(text)
+        dlg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        dlg.setIcon(QMessageBox.Icon.Warning)
+        dlg.exec()
 
     def thread_check_pdb(self):
         """
         :return: передача функции по проверки pdb в отдельном потоке
         """
-        logger.info('Функция просмотра существующих PDB запущена')
+        logger.info('Запрошен список существующих PDB')
         worker = Worker(self.fn_check_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -148,13 +158,14 @@ class Window(QMainWindow):
         self.list_pdb.clear()
         for i in self.pdb_name_list:
             self.list_pdb.addItem(i)
+        self.table.setSortingEnabled(True)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
 
     def thread_check_connection(self):
         """
         :return: передача функции по ппроверке подключения к cdb в отдельном потоке
         """
-        logger.info('Функция проверки подключения к PDB запущена')
+        logger.info('Проверка подключения к PDB')
         worker = Worker(self.fn_check_connect)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -180,13 +191,13 @@ class Window(QMainWindow):
             return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
         else:
             logger.warning(result, exc_info=True)
-            return f'Не удалось подключиться к PDB. Возможны ошибки на сервере (посмотрите логи)'
+            return f'Не удалось подключиться к PDB. Возможны ошибки на сервере'
 
     def thread_cloning_pdb(self):
         """
         :return: передача функции клонирования pdb в отдельном потоке
         """
-        logger.info('Функция клонирования PDB запущена')
+        logger.info('Клонирование PDB')
         worker = Worker(self.fn_cloning_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -205,9 +216,15 @@ class Window(QMainWindow):
         pdb_name_clone = self.input_newpdb.text().upper()
         if pdb_name_clone == 'ASDCOEMPTY_ETALON' or pdb_name_clone == 'PDB$SEED':
             logger.error('Заблокирована попытка клонирования на базу ASDCOEMPTY_ETALON или PDB$SEED')
-            return f'Функция {traceback.extract_stack()[-1][2]} выполнена, ' \
-                   f'но нельзя использовать в новом имени PDB имена ASDCOEMPTY_ETALON/PDB$SEED'
-
+            self.msg_window('Обнаружена попытка клонирования на БД ASDCOEMPTY_ETALON или PDB$SEED')
+            return f'Функция {traceback.extract_stack()[-1][2]} выполнена. ' \
+                   f'Однако нельзя использовать в новом имени PDB имена ASDCOEMPTY_ETALON/PDB$SEED'
+        elif pdb_name_clone == pdb_name:
+            logger.error('Имя новой PDB совпадает с существующей PDB. '
+                         'Во избежание удаления исходной PDB клонирование не выполнено')
+            self.msg_window('Имя новой PDB и имеющейся PDB не должны совпадать')
+            return f'Функция {traceback.extract_stack()[-1][2]} выполнена.' \
+                   f'Однако во избежание удаления исходной PDB клонирование не выполняется'
         else:
             self.btn_clone_pdb.setEnabled(False)
             self.btn_delete_pdb.setEnabled(False)
@@ -221,6 +238,7 @@ class Window(QMainWindow):
             self.btn_clone_pdb.setEnabled(True)
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
+            logger.info(f'Создана новая PDB. Имя новой PDB {pdb_name_clone}')
             logger.info(result)
             return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. Имя новой PDB {pdb_name_clone}'
 
@@ -228,7 +246,7 @@ class Window(QMainWindow):
         """
         :return: передача функции удаления pdb в отдельном потоке
         """
-        logger.info('Функция удаления PDB запущена')
+        logger.info('Удаление PDB')
         worker = Worker(self.fn_deleting_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -246,7 +264,7 @@ class Window(QMainWindow):
         pdb_name = self.list_pdb.currentText().upper()
         if pdb_name == 'ASDCOEMPTY_ETALON' or pdb_name == 'PDB$SEED':
             logger.error('Заблокирована попытка удаления на базу ASDCOEMPTY_ETALON или PDB$SEED')
-            # всплывающее окно, в котором указано, что удалить ASDCOEMPTY_ETALON/PDB$SEED нельзя
+            self.msg_window('Обнаружена попытка удаления ASDCOEMPTY_ETALON или PDB$SEED')
             return f'Функция {traceback.extract_stack()[-1][2]} выполнена, но нельзя удалять ASDCOEMPTY_ETALON/PDB$SEED'
         else:
             self.btn_clone_pdb.setEnabled(False)
@@ -260,6 +278,7 @@ class Window(QMainWindow):
             self.btn_clone_pdb.setEnabled(True)
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
+            logger.info(f'PDB {pdb_name} удалена')
             logger.info(result)
             return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. {pdb_name} удалена'
 
@@ -267,7 +286,7 @@ class Window(QMainWindow):
         """
         :return: передача функции по переводу pdb из режима только для чтения в отдельном потоке
         """
-        logger.info("Функция для перевода PDB в режим записи запущена")
+        logger.info('Перевести PDB в режим writable')
         worker = Worker(self.fn_writable_pdb)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
@@ -310,51 +329,82 @@ class Window(QMainWindow):
         for schema_name in checked_schemas:
             name = eval('self.input_' + schema_name + '_name.text()')
             identified = eval('self.input_' + schema_name + '_pass.text()')
-            oracle_string = get_string_create_oracle_schema(connection_string,
+            result_creating_schemas = self.creating_schemas(connection_string,
                                                             sysdba_name,
                                                             sysdba_password,
                                                             name,
                                                             identified,
                                                             bd_name)
-            result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-            self.input_schemas_area.append(result)
-            check_result_for_privileges = self.grant_privilege_schemas(connection_string,
-                                                                       sysdba_name,
-                                                                       sysdba_password,
-                                                                       name,
-                                                                       bd_name)
-            self.input_schemas_area.append(check_result_for_privileges)
-            show_schemas_from_pdb = self.show_shemas(connection_string, sysdba_name, sysdba_password, bd_name)
-            self.input_schemas_area.append(show_schemas_from_pdb)
-            # __import_schemas()  не забыть добавить имя pdb, добавить графическое поле с именем схемы в дампе
+            self.input_schemas_area.append(result_creating_schemas)
+            logger.info(f'Схема {name} создана')
+            result_for_privileges = self.grant_privilege_schemas(connection_string,
+                                                                 sysdba_name,
+                                                                 sysdba_password,
+                                                                 name,
+                                                                 bd_name)
+            self.input_schemas_area.append(result_for_privileges)
+            logger.info(f'Схеме {name} выданы привилегии')
+            result_show_schemas_from_pdb = self.show_shemas(connection_string, sysdba_name, sysdba_password, bd_name)
+            self.input_schemas_area.append(result_show_schemas_from_pdb)
+            logger.info(result_show_schemas_from_pdb)
+            # __import_schemas()  не забыть добавить имя pdb
             # __enabled_schemes_options()
 
+    def creating_schemas(self, connection_string, sysdba_name, sysdba_password, name, identified, bd_name):
+        """
+        :param connection_string:
+        :param sysdba_name:
+        :param sysdba_password:
+        :param name:
+        :param identified:
+        :param bd_name:
+        :return:
+        """
+        oracle_string = get_string_create_oracle_schema(connection_string,
+                                                        sysdba_name,
+                                                        sysdba_password,
+                                                        name,
+                                                        identified,
+                                                        bd_name)
+        return runnings_sqlplus_scripts_with_subprocess(oracle_string)
+
     def grant_privilege_schemas(self, connection_string, sysdba_name, sysdba_password, schema_name, bd_name):
+        """
+        :param connection_string:
+        :param sysdba_name:
+        :param sysdba_password:
+        :param schema_name:
+        :param bd_name:
+        :return:
+        """
         oracle_string = get_string_grant_oracle_privilege(connection_string,
                                                           sysdba_name,
                                                           sysdba_password,
                                                           schema_name,
                                                           bd_name)
-        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        return result
+        return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
     def show_shemas(self, connection_string, sysdba_name, sysdba_password, bd_name):
+        """
+        :param connection_string:
+        :param sysdba_name:
+        :param sysdba_password:
+        :param bd_name:
+        :return:
+        """
         oracle_string = get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string, bd_name)
-        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        return result
+        return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
     def __import_schemas(self, connection_string, pdb_name, schema_name,
                          schema_password, schema_name_in_dump, schema_dump_file):
         oracle_string = get_string_import_oracle_schema(connection_string, pdb_name, schema_name,
                                                         schema_password, schema_name_in_dump, schema_dump_file)
-        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        return result
+        return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
     def __enabled_schemes_options(self, connection_string, pdb_name, schema_name, schema_password):
         oracle_string = get_string_enabled_oracle_asdco_options(connection_string, pdb_name,
                                                                 schema_name, schema_password)
-        result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        return result
+        return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
     def thread_deleting_schemas(self):
         worker = Worker(self.fn_deleting_schemas)  # функция, которая выполняется в потоке
