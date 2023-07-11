@@ -40,11 +40,12 @@ def delete_temp_directory():
     :return: при выходе из программы удаляется врменный каталог temp
     """
     cwd_temp_path = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
-    try:
-        shutil.rmtree(cwd_temp_path)
-        logger.info(f'директория {TEMP_DIRECTORY} удалена')
-    except FileNotFoundError as error:
-        logger.error(f'невозможно удалить директорию {TEMP_DIRECTORY} по причине {error}')
+    if pathlib.Path.exists(cwd_temp_path):
+        try:
+            shutil.rmtree(cwd_temp_path)
+            logger.info(f'директория {TEMP_DIRECTORY} удалена')
+        except FileNotFoundError as error:
+            logger.error(f'невозможно удалить директорию {TEMP_DIRECTORY} по причине {error}')
 
 
 def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):
