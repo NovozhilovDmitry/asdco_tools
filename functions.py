@@ -16,13 +16,9 @@ def create_script_file(script):  # переписать с os на pathlib
     :param script: sql скрипт из функций
     :return: создает временный файл с sql запросом
     """
-    # directory_name = os.path.join(os.getcwd(), TEMP_DIRECTORY)
-    # file_name = os.path.join(os.getcwd(), TEMP_DIRECTORY, f'script_{time.time_ns()}.sql')
     directory_name = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
     file_name = directory_name.joinpath(f'script_{time.time_ns()}.sql')
     try:
-        # if not os.path.isdir(directory_name):
-        # os.makedirs(directory_name)
         if not pathlib.Path.exists(pathlib.Path.cwd().joinpath(directory_name)):
             pathlib.Path.cwd().joinpath(directory_name).mkdir(parents=True, exist_ok=True)
             logger.info(f'Создана директория {directory_name} для временного размещения скриптов')
@@ -214,6 +210,7 @@ def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_pas
     script = f"""alter session set container={bd_name};
 grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
 grant DBA to {schema_name};
+grant IMP_FULL_DATABASE to {schema_name};
 grant FLASHBACK ANY TABLE,UNLIMITED TABLESPACE, CREATE ANY DIRECTORY, ALTER SESSION, SELECT ANY DICTIONARY to {schema_name};
 grant SELECT on V_$SESSION to {schema_name};
 grant SELECT on V_$LOCKED_OBJECT to {schema_name};
@@ -247,8 +244,8 @@ def get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
-    :param bd_name:
-    :return: имя pdb, в которой проверяются созданные схемы
+    :param bd_name: имя pdb, в которой создана схема
+    :return: показывает созданные схемы
     """
     script = f"""alter session set container={bd_name};
 column USERNAME format A40;
@@ -263,17 +260,17 @@ exit;
     return cmd
 
 
-def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, schema_password, schema_name_in_dump, schema_dump_file):
+def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, schema_password, schema_dump_file):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
-    :param pdb_name:
-    :param schema_name:
-    :param schema_password:
-    :param schema_name_in_dump:
-    :param schema_dump_file:
-    :return:
+    :param pdb_name: имя pdb, к которой подключаемся для импорта
+    :param schema_name: имя схемы
+    :param schema_password: пароль от схемы
+    :param schema_dump_file: путь к дампу
+    :return: импорт схем из дампа
     """
-    cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE'"
+    # cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE'"
+    cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FULL=y GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE"
     logger.info(f'Вызов оракловского приложения для импортирования БД (imp.exe)')
     return cmd
 
@@ -282,9 +279,9 @@ def get_string_enabled_oracle_asdco_options(connection_string, pdb_name, schema_
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
     :param pdb_name: пароль пользователя SYSDBA
-    :param schema_name:
-    :param schema_password:
-    :return:
+    :param schema_name: имя схемы
+    :param schema_password: пароль от схемы
+    :return: обновление триггеров, функций и процедур
     """
     script = f"""-- включение row movement
 begin

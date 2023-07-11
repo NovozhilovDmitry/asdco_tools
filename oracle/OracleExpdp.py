@@ -12,7 +12,6 @@ from .integrityOracle12 import get_string_check_oracle_connection, \
     check_failure_result_show_oracle_users, \
     get_string_show_pdbs, \
     check_failure_result_show_pdbs
-from additions import MAIN_WINDOW_TITLE
 
 
 WINDOW_TITLE = 'Oracle (local). Экспорт схем (data pump)'

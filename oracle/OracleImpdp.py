@@ -12,7 +12,6 @@ from .integrityOracle12 import get_string_check_oracle_connection, \
     check_failure_result_show_oracle_users, \
     get_string_enabled_oracle_asdco_options, \
     check_failure_enabled_oracle_asdco_options
-from additions import MAIN_WINDOW_TITLE
 
 WINDOW_TITLE = 'Oracle (local). Импорт схем (data pump)'
 WINDOW_GEOMETRY = r'1350x920'

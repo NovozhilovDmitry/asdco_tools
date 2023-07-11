@@ -115,6 +115,10 @@ class Window(QMainWindow):
         self.pdb_progressbar.setRange(0, 1)
 
     def msg_window(self, text):
+        """
+        :param text: текст, который передается в диалоговое окно для оповещения
+        :return: вызов диалогового окна
+        """
         dlg = QMessageBox()
         dlg.setWindowTitle(TITLE)
         dlg.setText(text)
@@ -144,6 +148,7 @@ class Window(QMainWindow):
         oracle_string = get_string_show_pdbs(sysdba_name, sysdba_password, connection_string)
         result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string, return_split_result=True)
         self.pdb_name_list = formating_sqlplus_results_and_return_pdb_names(list_result)
+        self.table.setRowCount(0)  # очистить строки перед новым заполнением из-за включения сортировки
         self.table.setRowCount(len(self.pdb_name_list))
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(['Имя', 'Дата создания', 'Статус', 'Размер'])
@@ -163,7 +168,7 @@ class Window(QMainWindow):
 
     def thread_check_connection(self):
         """
-        :return: передача функции по ппроверке подключения к cdb в отдельном потоке
+        :return: передача функции по проверке подключения к cdb в отдельном потоке
         """
         logger.info('Проверка подключения к PDB')
         worker = Worker(self.fn_check_connect)  # функция, которая выполняется в потоке
@@ -313,12 +318,19 @@ class Window(QMainWindow):
                f'PDB {pdb_name} переведена в режим доступной для записи'
 
     def thread_creating_schemas(self):
+        """
+        :return: передача функции по созданию схем в отдельном потоке
+        """
         worker = Worker(self.fn_creating_schemas)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
         self.threadpool.start(worker)
 
     def fn_creating_schemas(self, progress_callback):
+        """
+        :param progress_callback: передача результатов из класса потока
+        :return: передает сообщение в функцию thread_print_output
+        """
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
@@ -352,13 +364,13 @@ class Window(QMainWindow):
 
     def creating_schemas(self, connection_string, sysdba_name, sysdba_password, name, identified, bd_name):
         """
-        :param connection_string:
-        :param sysdba_name:
-        :param sysdba_password:
-        :param name:
-        :param identified:
-        :param bd_name:
-        :return:
+        :param connection_string: строка подключения к pdb
+        :param sysdba_name: логин пользователя SYSDBA
+        :param sysdba_password: пароль пользователя SYSDBA
+        :param name: имя новой схемы
+        :param identified: пароль от схемы
+        :param bd_name: имя pdb, в которой будет создана схема
+        :return: созданные схемы
         """
         oracle_string = get_string_create_oracle_schema(connection_string,
                                                         sysdba_name,
@@ -370,13 +382,14 @@ class Window(QMainWindow):
 
     def grant_privilege_schemas(self, connection_string, sysdba_name, sysdba_password, schema_name, bd_name):
         """
-        :param connection_string:
-        :param sysdba_name:
-        :param sysdba_password:
-        :param schema_name:
-        :param bd_name:
-        :return:
+        :param connection_string: строка подключения к pdb
+        :param sysdba_name: логин пользователя SYSDBA
+        :param sysdba_password: пароль пользователя SYSDBA
+        :param schema_name: имя новой схемы
+        :param bd_name: имя pdb, в которой будет создана схема
+        :return: выданы привилегии для схем
         """
+        # добавлены привилегии IMP_FULL_DATABASE для пользователей схемы
         oracle_string = get_string_grant_oracle_privilege(connection_string,
                                                           sysdba_name,
                                                           sysdba_password,
@@ -386,19 +399,30 @@ class Window(QMainWindow):
 
     def show_shemas(self, connection_string, sysdba_name, sysdba_password, bd_name):
         """
-        :param connection_string:
-        :param sysdba_name:
-        :param sysdba_password:
-        :param bd_name:
-        :return:
+        :param connection_string: строка подключения к pdb
+        :param sysdba_name: логин пользователя SYSDBA
+        :param sysdba_password: пароль пользователя SYSDBA
+        :param bd_name: имя pdb, в которой будет создана схема
+        :return: показывает созданные схемы
         """
         oracle_string = get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string, bd_name)
         return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
     def __import_schemas(self, connection_string, pdb_name, schema_name,
-                         schema_password, schema_name_in_dump, schema_dump_file):
+                         schema_password, schema_dump_file):
+        """
+        :param connection_string:
+        :param pdb_name:
+        :param schema_name:
+        :param schema_password:
+        :param schema_dump_file:
+        :return:
+        """
+        # из функции удалено использование имени из дампа
+        # используются гранты для пользователя full imp
+        # если не заработает, то вернуть from_user/to_user
         oracle_string = get_string_import_oracle_schema(connection_string, pdb_name, schema_name,
-                                                        schema_password, schema_name_in_dump, schema_dump_file)
+                                                        schema_password, schema_dump_file)
         return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
     def __enabled_schemes_options(self, connection_string, pdb_name, schema_name, schema_password):
@@ -407,16 +431,27 @@ class Window(QMainWindow):
         return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
     def thread_deleting_schemas(self):
+        """
+        :return:
+        """
         worker = Worker(self.fn_deleting_schemas)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
         self.threadpool.start(worker)
 
-    def fn_deleting_schemas(self):
+    def fn_deleting_schemas(self, progress_callback):
+        """
+        :param progress_callback: передача результатов из класса потока
+        :return: передает сообщение в функцию thread_print_output
+        """
         checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
         self.input_schemas_area.append(f'Удаление схем: {checked_schemas}')
 
     def fn_checkbox_clicked_for_schemas(self, checked):
+        """
+        :param checked:
+        :return:
+        """
         checkbox = self.sender()
         if checked:
             self.schemas[checkbox.name] = 1
@@ -424,6 +459,9 @@ class Window(QMainWindow):
             self.schemas[checkbox.name] = 0
 
     def fn_set_path_for_dumps(self):
+        """
+        :return:
+        """
         button = self.sender()
         get_dir = QFileDialog.getOpenFileName(self, caption='Выбрать файл')
         for i in range(1, 6):
@@ -467,7 +505,7 @@ class Window(QMainWindow):
         self.settings.setValue('deposit_ar_dump_path', self.path_schema4.text())
         self.settings.setValue('reserve_dump_path', self.path_schema5.text())
         self.settings.endGroup()
-        delete_temp_directory()  # удалить каталог temp
+        delete_temp_directory()
         logger.info('Пользовательские настройки сохранены')
         logger.info(f'Файл {__file__} закрыт')
 
@@ -506,8 +544,7 @@ class Window(QMainWindow):
             self.setGeometry(x, y, width, height)
             logger.info('Настройки размеров окна загружены.')
         except TypeError:
-            pass
-            logger.info('Настройки размеров окна НЕ загружены. Установлены размеры по умолчанию')
+            logger.info('Установлены размеры окна по умолчанию')
         if self.settings.value('password') == MD5_HEX:
             self.input_main_password.setText('123devop')
         else:
@@ -562,6 +599,7 @@ class Window(QMainWindow):
         self.btn_make_pdb_for_write.clicked.connect(self.thread_make_pdb_writable)
         self.btn_make_pdb_for_write.setEnabled(False)
         self.pdb_progressbar = QProgressBar()
+        self.pdb_progressbar.setStyleSheet('text-align: center; min-height: 20px; max-height: 20px;')
         self.table = QTableWidget()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tab_control.layout.addWidget(self.input_newpdb, 1, 0)
