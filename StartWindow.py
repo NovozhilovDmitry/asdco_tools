@@ -148,6 +148,7 @@ class Window(QMainWindow):
         oracle_string = get_string_show_pdbs(sysdba_name, sysdba_password, connection_string)
         result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string, return_split_result=True)
         self.pdb_name_list = formating_sqlplus_results_and_return_pdb_names(list_result)
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(0)  # очистить строки перед новым заполнением из-за включения сортировки
         self.table.setRowCount(len(self.pdb_name_list))
         self.table.setColumnCount(4)
@@ -187,7 +188,7 @@ class Window(QMainWindow):
         sysdba_password = self.input_main_password.text()
         oracle_string = get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-        logger.info(result)
+        logger.info(result.strip())
         ora_not_error = re.search(r'CONNECTION SUCCESS', result)
         if ora_not_error.group(0):
             self.btn_clone_pdb.setEnabled(True)
@@ -195,7 +196,7 @@ class Window(QMainWindow):
             self.btn_make_pdb_for_write.setEnabled(True)
             return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
         else:
-            logger.warning(result, exc_info=True)
+            logger.warning(result.strip(), exc_info=True)
             return f'Не удалось подключиться к PDB. Возможны ошибки на сервере'
 
     def thread_cloning_pdb(self):
@@ -244,7 +245,7 @@ class Window(QMainWindow):
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
             logger.info(f'Создана новая PDB. Имя новой PDB {pdb_name_clone}')
-            logger.info(result)
+            logger.info(result.strip())
             return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. Имя новой PDB {pdb_name_clone}'
 
     def thread_deleting_pdb(self):
@@ -284,7 +285,7 @@ class Window(QMainWindow):
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
             logger.info(f'PDB {pdb_name} удалена')
-            logger.info(result)
+            logger.info(result.strip())
             return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. {pdb_name} удалена'
 
     def thread_make_pdb_writable(self):
@@ -313,7 +314,7 @@ class Window(QMainWindow):
                                                      pdb_name)
         result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
         logger.info('PDB переведена в режим доступной для записи')
-        logger.info(result)
+        logger.info(result.strip())
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно. ' \
                f'PDB {pdb_name} переведена в режим доступной для записи'
 
@@ -347,18 +348,18 @@ class Window(QMainWindow):
                                                             name,
                                                             identified,
                                                             bd_name)
-            self.input_schemas_area.append(result_creating_schemas)
+            self.input_schemas_area.append(result_creating_schemas.strip())
             logger.info(f'Схема {name} создана')
             result_for_privileges = self.grant_privilege_schemas(connection_string,
                                                                  sysdba_name,
                                                                  sysdba_password,
                                                                  name,
                                                                  bd_name)
-            self.input_schemas_area.append(result_for_privileges)
+            self.input_schemas_area.append(result_for_privileges.strip())
             logger.info(f'Схеме {name} выданы привилегии')
             result_show_schemas_from_pdb = self.show_shemas(connection_string, sysdba_name, sysdba_password, bd_name)
-            self.input_schemas_area.append(result_show_schemas_from_pdb)
-            logger.info(result_show_schemas_from_pdb)
+            self.input_schemas_area.append(result_show_schemas_from_pdb.strip())
+            logger.info(result_show_schemas_from_pdb.strip())
             # __import_schemas()  не забыть добавить имя pdb
             # __enabled_schemes_options()
 
