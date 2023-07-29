@@ -1,5 +1,5 @@
-/logger.log
-.idea/
-/temp/
 /config.ini
+/logger.log
+/.idea
+.idea
 .idea/*.iml
