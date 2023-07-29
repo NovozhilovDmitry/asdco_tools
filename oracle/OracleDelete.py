@@ -8,7 +8,6 @@ from .integrityOracle12 import get_string_delete_oracle_scheme, \
     check_success_result_delete_oracle_scheme, \
     get_string_show_oracle_users, \
     check_failure_result_show_oracle_users
-from additions import MAIN_WINDOW_TITLE
 
 WINDOW_GEOMETRY = r'1100x930'
 WINDOW_TITLE = 'Oracle Удаление схем'

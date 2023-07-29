@@ -1,7 +1,6 @@
 import os
 import time
 from myLogging import logger
-from additions import create_script_file, TEMP_DIRECTORY
 
 CHECK_CONNECTION_SUCCESSFULLY_STRING = r'CHECK CONNECTION SUCCESSFULLY'
 CHECK_DROP_USER_SUCCESSFULLY_STRING_RUS = r'ПОЛЬЗОВАТЕЛЬ УДАЛЕН.'
