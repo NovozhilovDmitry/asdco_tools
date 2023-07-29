@@ -2,3 +2,4 @@
 .idea/
 /temp/
 /config.ini
+.idea/*.iml
