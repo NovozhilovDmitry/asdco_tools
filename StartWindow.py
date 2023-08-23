@@ -69,7 +69,7 @@ class Worker(QRunnable):
             traceback.print_exc()
             exctype, value = sys.exc_info()[:2]
             self.signals.error.emit((exctype, value, traceback.format_exc()))
-        else:  # если ошибок не было, то формируем сигнал .result и передаем результат `result`
+        else:  # если ошибок не было, то формируем сигнал .result и передаем результат
             self.signals.result.emit(result)  # Вернуть результат обработки
         finally:
             self.signals.finish.emit()  # Готово
@@ -79,14 +79,14 @@ class Window(QMainWindow):
     def __init__(self):
         super(Window, self).__init__()
         self.setWindowTitle(TITLE)  # заголовок главного окна
-        self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)
-        self.btn_icon = QPixmap("others/folder.png")
+        self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)  # минимальный размер окна
+        self.btn_icon = QPixmap("others/folder.png")  # иконка для приложения
         self.layout = QWidget()
         self.main_layout = QVBoxLayout()
         self.top_grid_layout = QGridLayout()
         self.tabs = QTabWidget()
-        self.tab_control = QWidget()
-        self.tab_schemas = QWidget()
+        self.tab_control = QWidget()  # вкладка для pdb
+        self.tab_schemas = QWidget()  # вкладка для схем
         self.threadpool = QThreadPool()
         self.settings = QSettings("config.ini", QSettings.Format.IniFormat)
         self.schemas = {'schema1': 0, 'schema2': 0, 'schema3': 0, 'schema4': 0, 'schema5': 0}
@@ -141,18 +141,18 @@ class Window(QMainWindow):
         :param progress_callback: передача результатов из класса потока
         :return: передает сообщение в функцию thread_print_output
         """
-        self.pdb_progressbar.setRange(0, 0)
-        connection_string = self.line_main_connect.text()
-        sysdba_name = self.input_main_login.text()
-        sysdba_password = self.input_main_password.text()
+        self.pdb_progressbar.setRange(0, 0)  # запускается бесконечный прогресс бар
+        connection_string = self.line_main_connect.text()  # строка подключения из интерфейса
+        sysdba_name = self.input_main_login.text()  # имя пользователя из интерфейса
+        sysdba_password = self.input_main_password.text()  # пароль
         oracle_string = get_string_show_pdbs(sysdba_name, sysdba_password, connection_string)
         result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string, return_split_result=True)
         self.pdb_name_list = formating_sqlplus_results_and_return_pdb_names(list_result)
-        self.table.setSortingEnabled(False)
+        self.table.setSortingEnabled(False)  # отключаем возможность сортировки по столбцам
         self.table.setRowCount(0)  # очистить строки перед новым заполнением из-за включения сортировки
-        self.table.setRowCount(len(self.pdb_name_list))
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(['Имя', 'Дата создания', 'Статус', 'Размер'])
+        self.table.setRowCount(len(self.pdb_name_list))  # устанавливаем количество строк по длине списка
+        self.table.setColumnCount(4)  # устанавливаем количество столбцов
+        self.table.setHorizontalHeaderLabels(['Имя', 'Дата создания', 'Статус', 'Размер'])  # названия столбцов
         new_list = format_list_result(list_result)
         row = 0
         for i in new_list:
@@ -162,8 +162,8 @@ class Window(QMainWindow):
             self.table.setItem(row, 3, QTableWidgetItem(i[3]))
             row += 1
         self.list_pdb.clear()
-        for i in self.pdb_name_list:
-            self.list_pdb.addItem(i)
+        # for i in self.pdb_name_list:
+        #     self.list_pdb.addItem(i)
         self.table.setSortingEnabled(True)
         return f'Функция {traceback.extract_stack()[-1][2]} выполнена успешно'
 
@@ -562,6 +562,7 @@ class Window(QMainWindow):
         self.input_main_password.setEchoMode(QLineEdit.EchoMode.Password)
         self.label_main_connect = QLabel('Строка подключения')
         self.line_main_connect = QLineEdit()
+        self.line_main_connect.setToolTip('Указывается ip:порт/SID(service name)')
         self.label_pdb = QLabel('Имя PDB')
         self.list_pdb = QComboBox()
         self.line_for_combobox = QLineEdit()

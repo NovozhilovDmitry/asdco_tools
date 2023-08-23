@@ -1,4 +1,3 @@
-import os
 import time
 import sys
 import shutil
@@ -11,7 +10,7 @@ TEMP_DIRECTORY = r'temp'
 DATA_PUMP_DIR = r'DATA_PUMP_DIR'
 
 
-def create_script_file(script):  # переписать с os на pathlib
+def create_script_file(script):
     """
     :param script: sql скрипт из функций
     :return: создает временный файл с sql запросом
@@ -33,15 +32,15 @@ def create_script_file(script):  # переписать с os на pathlib
 
 def delete_temp_directory():
     """
-    :return: при выходе из программы удаляется врменный каталог temp
+    :return: при штатном выходе из программы удаляется врменный каталог temp
     """
     cwd_temp_path = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
     if pathlib.Path.exists(cwd_temp_path):
         try:
             shutil.rmtree(cwd_temp_path)
-            logger.info(f'директория {TEMP_DIRECTORY} удалена')
+            logger.info(f'Директория {TEMP_DIRECTORY} удалена')
         except FileNotFoundError as error:
-            logger.error(f'невозможно удалить директорию {TEMP_DIRECTORY} по причине {error}')
+            logger.error(f'Невозможно удалить директорию {TEMP_DIRECTORY} по причине {error}')
 
 
 def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):
@@ -49,7 +48,7 @@ def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):
     функция для запуска sql скриптов с помощью модуля subprocess и метода run
     :param cmd: передается строка подключения и sql скрипт
     :param return_split_result: если true - возвращает дополнительно список разбитый по разделителю конца строки
-    :return:
+    :return: возвращает результат выполнения
     """
     result = subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('1251')
     if return_split_result:
@@ -79,8 +78,8 @@ order by name;
 exit;
     """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
-    logger.info(f'Подключение к {connection_string}/ORCL под пользователем {sysdba_name}')
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    logger.info(f'Подключение к {connection_string} под пользователем {sysdba_name}')
     return cmd
 
 
@@ -122,7 +121,7 @@ execute pdb.clone_pdb('{pdb_name}', '{pdb_name_cloned}');
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
     logger.info(f'Клонирование базы данных начато. Имя клонируемой PDB {pdb_name}, имя новой PDB {pdb_name_cloned}')
     return cmd
 
@@ -141,7 +140,7 @@ execute pdb.make_read_write('{pdb_name}');
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
     logger.info(f'Сделать клонируемую PDB {pdb_name} доступной для записи')
     return cmd
 
@@ -160,7 +159,7 @@ execute pdb.remove('{pdb_name}');
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
     logger.info(f'Удаление PDB {pdb_name}')
     return cmd
 
@@ -175,7 +174,7 @@ def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_pa
     script = f"""select 'CONNECTION SUCCESS' as result from dual;
 exit;"""
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL as sysdba @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
     return cmd
 
 
@@ -193,7 +192,7 @@ def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_passw
 create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
 exit;"""
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL as sysdba @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
     logger.info(f'Создание схемы {schema_name}')
     return cmd
 
@@ -234,7 +233,7 @@ grant read,write on directory {DATA_PUMP_DIR} to {schema_name};
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL as sysdba @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
     logger.info(f'Привилегии для {schema_name} предоставлены')
     return cmd
 
@@ -255,7 +254,7 @@ select USERNAME, CREATED from dba_users where COMMON='NO';
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/ORCL @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
     logger.info(f'Показать созданные схемы')
     return cmd
 
