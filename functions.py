@@ -206,6 +206,8 @@ def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_pas
     :param bd_name: имя pdb, в которой создана схема
     :return: выданы права для схемы
     """
+# IMP_FULL_DATABASE добавлена для теста
+# должна заменить собой необходимость ввода имени пользователя от которого производить импорт схем
     script = f"""alter session set container={bd_name};
 grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
 grant DBA to {schema_name};
@@ -269,6 +271,7 @@ def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, sc
     :return: импорт схем из дампа
     """
     # cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE'"
+# раскомментировать строку и удалить следующую, если не получится избежать использование имени от которого делался дамп
     cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FULL=y GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE"
     logger.info(f'Вызов оракловского приложения для импортирования БД (imp.exe)')
     return cmd
@@ -358,6 +361,20 @@ end;
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {schema_name}/{schema_password}@{connection_string}/{pdb_name} @{script_file}'
     logger.info(f'Обновление триггеров, функций и процедур')
+    return cmd
+
+
+def get_string_delete_oracle_scheme(connection_string, sysdba_name, sysdba_password, schema_name):
+    """
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param schema_name: имя схемы, которая будет удалена
+    :return: удаленная схема
+    """
+    script = f"drop user {schema_name} cascade;"
+    script_file = create_script_file(script)
+    cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
     return cmd
 
 

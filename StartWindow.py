@@ -36,7 +36,8 @@ from functions import (get_string_show_pdbs,
                        get_string_grant_oracle_privilege,
                        get_string_show_oracle_users,
                        get_string_enabled_oracle_asdco_options,
-                       get_string_import_oracle_schema)
+                       get_string_import_oracle_schema,
+                       get_string_delete_oracle_scheme)
 
 
 WINDOW_WIDTH = 1000
@@ -332,6 +333,7 @@ class Window(QMainWindow):
         :param progress_callback: передача результатов из класса потока
         :return: передает сообщение в функцию thread_print_output
         """
+        self.pdb_progressbar.setRange(0, 0)
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
@@ -342,26 +344,30 @@ class Window(QMainWindow):
         for schema_name in checked_schemas:
             name = eval('self.input_' + schema_name + '_name.text()')
             identified = eval('self.input_' + schema_name + '_pass.text()')
-            result_creating_schemas = self.creating_schemas(connection_string,
-                                                            sysdba_name,
-                                                            sysdba_password,
-                                                            name,
-                                                            identified,
-                                                            bd_name)
+            result_creating_schemas = self.creating_schemas(connection_string, sysdba_name, sysdba_password,
+                                                            name, identified, bd_name)
             self.input_schemas_area.append(result_creating_schemas.strip())
             logger.info(f'Схема {name} создана')
-            result_for_privileges = self.grant_privilege_schemas(connection_string,
-                                                                 sysdba_name,
-                                                                 sysdba_password,
-                                                                 name,
-                                                                 bd_name)
+            result_for_privileges = self.grant_privilege_schemas(connection_string, sysdba_name, sysdba_password,
+                                                                 name, bd_name)
             self.input_schemas_area.append(result_for_privileges.strip())
             logger.info(f'Схеме {name} выданы привилегии')
             result_show_schemas_from_pdb = self.show_shemas(connection_string, sysdba_name, sysdba_password, bd_name)
             self.input_schemas_area.append(result_show_schemas_from_pdb.strip())
             logger.info(result_show_schemas_from_pdb.strip())
-            # __import_schemas()  не забыть добавить имя pdb
-            # __enabled_schemes_options()
+        for schema_name in checked_schemas:
+            name = eval('self.input_' + schema_name + '_name.text()')
+            identified = eval('self.input_' + schema_name + '_pass.text()')
+            dump_for_schema_path = eval('self.path_' + schema_name + '.text()')
+            self.input_schemas_area.append(f'Начато выполнение импорта из дампа для схемы {name}')
+            logger.info(f'Начато выполнение импорта из дампа для схемы {name}')
+            result_for_import = self.import_schemas(connection_string, bd_name, name, identified, dump_for_schema_path)
+            self.input_schemas_area.append(f'Импорт из дампа для схемы {name} завершен. Результаты выполнения:\n')
+            self.input_schemas_area.append(result_for_import.strip())
+            logger.info(f'Импорт из дампа для схемы {name} завершен')
+            logger.info(f'Включение опций и перекомпиляция view и функций для схемы {name}')
+            self.enabled_schemes_options(connection_string, bd_name, name, identified)
+            logger.info(f'Опции и перекомпиляция view и функций для схемы {name} выполнены успешно')
 
     def creating_schemas(self, connection_string, sysdba_name, sysdba_password, name, identified, bd_name):
         """
@@ -373,12 +379,8 @@ class Window(QMainWindow):
         :param bd_name: имя pdb, в которой будет создана схема
         :return: созданные схемы
         """
-        oracle_string = get_string_create_oracle_schema(connection_string,
-                                                        sysdba_name,
-                                                        sysdba_password,
-                                                        name,
-                                                        identified,
-                                                        bd_name)
+        oracle_string = get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, name,
+                                                        identified, bd_name)
         return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
     def grant_privilege_schemas(self, connection_string, sysdba_name, sysdba_password, schema_name, bd_name):
@@ -409,25 +411,26 @@ class Window(QMainWindow):
         oracle_string = get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string, bd_name)
         return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
-    def __import_schemas(self, connection_string, pdb_name, schema_name,
-                         schema_password, schema_dump_file):
+    def import_schemas(self, connection_string, pdb_name, schema_name, schema_password, schema_dump_file):
         """
-        :param connection_string:
-        :param pdb_name:
-        :param schema_name:
-        :param schema_password:
-        :param schema_dump_file:
-        :return:
+        :param connection_string: строка подключения к pdb
+        :param pdb_name: имя pdb в которой созданы схемы
+        :param schema_name: логин от схемы
+        :param schema_password: пароль от схемы
+        :param schema_dump_file: путь к файлу дампа
+        :return: импортирует данные их дампа в схему
         """
         # из функции удалено использование имени из дампа
         # используются гранты для пользователя full imp
         # если не заработает, то вернуть from_user/to_user
-        oracle_string = get_string_import_oracle_schema(connection_string, pdb_name, schema_name,
+        connection_string_without_orcl = connection_string[:connection_string.rfind('/')]  # убрать /orcl из строки подключения
+        oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, pdb_name, schema_name,
                                                         schema_password, schema_dump_file)
         return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
-    def __enabled_schemes_options(self, connection_string, pdb_name, schema_name, schema_password):
-        oracle_string = get_string_enabled_oracle_asdco_options(connection_string, pdb_name,
+    def enabled_schemes_options(self, connection_string, pdb_name, schema_name, schema_password):
+        connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+        oracle_string = get_string_enabled_oracle_asdco_options(connection_string_without_orcl, pdb_name,
                                                                 schema_name, schema_password)
         return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
@@ -442,16 +445,27 @@ class Window(QMainWindow):
 
     def fn_deleting_schemas(self, progress_callback):
         """
-        :param progress_callback: передача результатов из класса потока
-        :return: передает сообщение в функцию thread_print_output
+        :param progress_callback:
+        :return: удаление выделенных схем
         """
+        self.pdb_progressbar.setRange(0, 0)
+        connection_string = self.line_main_connect.text()
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
         checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
         self.input_schemas_area.append(f'Удаление схем: {checked_schemas}')
+        logger.info(f'Начато удаление схем {checked_schemas}')
+        if len(checked_schemas) == 7:
+            get_string_delete_oracle_scheme(connection_string, sysdba_name, sysdba_password, checked_schemas)
+        else:
+            for schema_name in checked_schemas:
+                get_string_delete_oracle_scheme(connection_string, sysdba_name, sysdba_password, schema_name)
+        logger.info(f'Удаление схем завершено. Удаленные схемы {checked_schemas}')
 
     def fn_checkbox_clicked_for_schemas(self, checked):
         """
-        :param checked:
-        :return:
+        :param checked: принимаем статус чекбокса
+        :return: устанавливаем для словаря 1/0
         """
         checkbox = self.sender()
         if checked:
@@ -461,7 +475,7 @@ class Window(QMainWindow):
 
     def fn_set_path_for_dumps(self):
         """
-        :return:
+        :return: устанавливаем путь для каждого дампа схемы
         """
         button = self.sender()
         get_dir = QFileDialog.getOpenFileName(self, caption='Выбрать файл')
