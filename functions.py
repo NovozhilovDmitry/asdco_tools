@@ -71,7 +71,7 @@ set linesize 1000
 set heading off
 column name format a25
 set NUMWIDTH 11
-set NUMFORMAT 99,999,999,999
+set NUMFORMAT 99_999_999_999
 select name, creation_time, open_mode, total_size
 from v$pdbs
 order by name;
