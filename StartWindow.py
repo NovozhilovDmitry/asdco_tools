@@ -354,7 +354,6 @@ class Window(QMainWindow):
         :param progress_callback: передача результатов из класса потока
         :return: передает сообщение в функцию thread_print_output
         """
-
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
@@ -377,13 +376,54 @@ class Window(QMainWindow):
                             '\t- строка подключения к CDB\n'
                             '\t- имя PDB')
 
+    def thread_schemas_complete(self):
+        """
+        :return: слот для сигнала о завершении потока
+        """
+        logger.info('Выделенный поток завершен. Прогресс бар установлен на 100%')
+        self.schemas_progressbar.setRange(0, 1)
+
+    def thread_showing_schemas(self):
+        """
+        :return: передача функции по созданию схем в отдельном потоке
+        """
+        logger.info(f'Запрошен список существующих схем в PDB {self.list_pdb.currentText()}')
+        worker = Worker(self.fn_show_shemas)  # функция, которая выполняется в потоке
+        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
+        worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
+        self.threadpool.start(worker)
+
+    def fn_show_shemas(self, progress_callback):
+        """
+        :param progress_callback: передача результатов из класса потока
+        :return: передает сообщение в функцию thread_print_output
+        """
+        connection_string = self.line_main_connect.text()
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
+        bd_name = self.list_pdb.currentText().upper()
+        if connection_string and sysdba_name and sysdba_password and bd_name:
+            self.schemas_progressbar.setRange(0, 0)
+            oracle_string = get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string, bd_name)
+            result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+            logger.info(result.strip())
+            self.input_schemas_area.append(result.strip())
+            return f'Функция {traceback.extract_stack()[-1][2]} завершена'
+        else:
+            logger.warning('Не заполнены все обязательные поля. Невозможно отобразить существующие схемы')
+            self.msg_window('Не заполнены все обязательные поля:\n'
+                            '\t- пользователь/пароль SYSDBA пользователя\n'
+                            '\t- строка подключения к CDB\n'
+                            '\t- имя PDB')
+
     def thread_creating_schemas(self):
         """
         :return: передача функции по созданию схем в отдельном потоке
         """
+        logger.info('Начато создание схем')
         worker = Worker(self.fn_creating_schemas)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
+        worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
         self.threadpool.start(worker)
 
     def fn_creating_schemas(self, progress_callback):
@@ -391,41 +431,31 @@ class Window(QMainWindow):
         :param progress_callback: передача результатов из класса потока
         :return: передает сообщение в функцию thread_print_output
         """
-        self.pdb_progressbar.setRange(0, 0)
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
         bd_name = self.list_pdb.currentText().upper()
         checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
-        format_checked_schemas = ', '.join(checked_schemas)
-        self.input_schemas_area.append(f'Создание схем: {format_checked_schemas}')
-        for schema_name in checked_schemas:
-            name = eval('self.input_' + schema_name + '_name.text()')
-            identified = eval('self.input_' + schema_name + '_pass.text()')
-            result_creating_schemas = self.creating_schemas(connection_string, sysdba_name, sysdba_password,
-                                                            name, identified, bd_name)
-            self.input_schemas_area.append(result_creating_schemas.strip())
-            logger.info(f'Схема {name} создана')
-            result_for_privileges = self.grant_privilege_schemas(connection_string, sysdba_name, sysdba_password,
-                                                                 name, bd_name)
-            self.input_schemas_area.append(result_for_privileges.strip())
-            logger.info(f'Схеме {name} выданы привилегии')
-            result_show_schemas_from_pdb = self.show_shemas(connection_string, sysdba_name, sysdba_password, bd_name)
-            self.input_schemas_area.append(result_show_schemas_from_pdb.strip())
-            logger.info(result_show_schemas_from_pdb.strip())
-        for schema_name in checked_schemas:
-            name = eval('self.input_' + schema_name + '_name.text()')
-            identified = eval('self.input_' + schema_name + '_pass.text()')
-            dump_for_schema_path = eval('self.path_' + schema_name + '.text()')
-            self.input_schemas_area.append(f'Начато выполнение импорта из дампа для схемы {name}')
-            logger.info(f'Начато выполнение импорта из дампа для схемы {name}')
-            result_for_import = self.import_schemas(connection_string, bd_name, name, identified, dump_for_schema_path)
-            self.input_schemas_area.append(f'Импорт из дампа для схемы {name} завершен. Результаты выполнения:\n')
-            self.input_schemas_area.append(result_for_import.strip())
-            logger.info(f'Импорт из дампа для схемы {name} завершен')
-            logger.info(f'Включение опций и перекомпиляция view и функций для схемы {name}')
-            self.enabled_schemes_options(connection_string, bd_name, name, identified)
-            logger.info(f'Опции и перекомпиляция view и функций для схемы {name} выполнены успешно')
+        if connection_string and sysdba_name and sysdba_password and bd_name:
+            self.schemas_progressbar.setRange(0, 0)
+            for schema_name in checked_schemas:
+                name = eval('self.input_' + schema_name + '_name.text()')
+                identified = eval('self.input_' + schema_name + '_pass.text()')
+                result_creating_schemas = self.creating_schemas(connection_string, sysdba_name, sysdba_password,
+                                                                name, identified, bd_name)
+                self.input_schemas_area.append(result_creating_schemas.strip())
+                logger.info(f'Схема {name} создана')
+                result_for_privileges = self.grant_privilege_schemas(connection_string, sysdba_name, sysdba_password,
+                                                                     name, bd_name)
+                self.input_schemas_area.append(result_for_privileges.strip())
+                logger.info(f'Схеме {name} выданы привилегии')
+                return f'Функция {traceback.extract_stack()[-1][2]} завершена'
+        else:
+            logger.warning('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
+            self.msg_window('Не заполнены все обязательные поля:\n'
+                            '\t- пользователь/пароль SYSDBA пользователя\n'
+                            '\t- строка подключения к CDB\n'
+                            '\t- имя PDB')
 
     def creating_schemas(self, connection_string, sysdba_name, sysdba_password, name, identified, bd_name):
         """
@@ -450,7 +480,6 @@ class Window(QMainWindow):
         :param bd_name: имя pdb, в которой будет создана схема
         :return: выданы привилегии для схем
         """
-        # добавлены привилегии IMP_FULL_DATABASE для пользователей схемы
         oracle_string = get_string_grant_oracle_privilege(connection_string,
                                                           sysdba_name,
                                                           sysdba_password,
@@ -458,33 +487,66 @@ class Window(QMainWindow):
                                                           bd_name)
         return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
-    def show_shemas(self, connection_string, sysdba_name, sysdba_password, bd_name):
+    def thread_import_from_dumps(self):
         """
-        :param connection_string: строка подключения к pdb
-        :param sysdba_name: логин пользователя SYSDBA
-        :param sysdba_password: пароль пользователя SYSDBA
-        :param bd_name: имя pdb, в которой будет создана схема
-        :return: показывает созданные схемы
+        :return: передача функции по созданию схем в отдельном потоке
         """
-        oracle_string = get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string, bd_name)
-        return runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        logger.info('Начат импорт из дампа')
+        worker = Worker(self.fn_import_schemas)  # функция, которая выполняется в потоке
+        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
+        worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
+        self.threadpool.start(worker)
 
-    def import_schemas(self, connection_string, pdb_name, schema_name, schema_password, schema_dump_file):
+    def fn_import_schemas(self, progress_callback):
         """
-        :param connection_string: строка подключения к pdb
-        :param pdb_name: имя pdb в которой созданы схемы
-        :param schema_name: логин от схемы
-        :param schema_password: пароль от схемы
-        :param schema_dump_file: путь к файлу дампа
-        :return: импортирует данные их дампа в схему
+        :param progress_callback: передача результатов из класса потока
+        :return: передает сообщение в функцию thread_print_output
         """
-        # из функции удалено использование имени из дампа
-        # используются гранты для пользователя full imp
-        # если не заработает, то вернуть from_user/to_user
-        connection_string_without_orcl = connection_string[:connection_string.rfind('/')]  # убрать /orcl из строки подключения
-        oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, pdb_name, schema_name,
-                                                        schema_password, schema_dump_file)
-        return runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        connection_string = self.line_main_connect.text()
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
+        bd_name = self.list_pdb.currentText().upper()
+        checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
+        if connection_string and sysdba_name and sysdba_password and bd_name:
+            self.schemas_progressbar.setRange(0, 0)
+            if len(checked_schemas) == 7:
+                name = eval('self.input_' + checked_schemas[0] + '_name.text()')
+                identified = eval('self.input_' + checked_schemas[0] + '_pass.text()')
+                dump_for_schema_path = eval('self.path_' + checked_schemas[0] + '.text()')
+                dump_name = eval('self.pdb_' + checked_schemas[0] + '_name.text()')
+                connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, bd_name, name,
+                                                                identified, dump_name, dump_for_schema_path)
+                result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+                self.input_schemas_area.append(result.strip())
+            elif len(checked_schemas) > 7:
+                for schema_name in checked_schemas:
+                    name = eval('self.input_' + schema_name + '_name.text()')
+                    identified = eval('self.input_' + schema_name + '_pass.text()')
+                    dump_for_schema_path = eval('self.path_' + schema_name + '.text()')
+                    dump_name = eval('self.pdb_' + schema_name + '_name.text()')
+                    self.input_schemas_area.append(f'Начато выполнение импорта из дампа для схемы {name}')
+                    logger.info(f'Начато выполнение импорта из дампа для схемы {name}')
+                    connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                    oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, bd_name, name,
+                                                                    identified, dump_name, dump_for_schema_path)
+                    result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+                    self.input_schemas_area.append(f'Импорт из дампа для схемы {name} завершен. Результаты выполнения:\n')
+                    self.input_schemas_area.append(result.strip())
+                    logger.info(f'Импорт из дампа для схемы {name} завершен')
+                    logger.info(f'Включение опций и перекомпиляция view и функций для схемы {name}')
+                    self.enabled_schemes_options(connection_string, bd_name, name, identified)
+                    logger.info(f'Выполнение перекомпиляции view и функций для схемы {name} зевершено')
+                    return f'Функция {traceback.extract_stack()[-1][2]} завершена'
+            else:
+                logger.warning('Не найдены отмеченные чекбоксами схемы')
+                self.msg_window('Проверьте отмечены ли схемы')
+        else:
+            logger.warning('Не заполнены все обязательные поля. Невозможно импортировать из дампа')
+            self.msg_window('Не заполнены все обязательные поля:\n'
+                            '\t- пользователь/пароль SYSDBA пользователя\n'
+                            '\t- строка подключения к CDB\n'
+                            '\t- имя PDB')
 
     def enabled_schemes_options(self, connection_string, pdb_name, schema_name, schema_password):
         connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
@@ -494,31 +556,50 @@ class Window(QMainWindow):
 
     def thread_deleting_schemas(self):
         """
-        :return:
+        :return: передача функции по созданию схем в отдельном потоке
         """
+        logger.info('Начато удаление схем')
         worker = Worker(self.fn_deleting_schemas)  # функция, которая выполняется в потоке
         worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
+        worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
         self.threadpool.start(worker)
 
     def fn_deleting_schemas(self, progress_callback):
         """
-        :param progress_callback:
+        :param progress_callback: передача результатов из класса потока
         :return: удаление выделенных схем
         """
-        self.pdb_progressbar.setRange(0, 0)
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
+        bd_name = self.list_pdb.currentText().upper()
         checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
         self.input_schemas_area.append(f'Удаление схем: {checked_schemas}')
         logger.info(f'Начато удаление схем {checked_schemas}')
-        if len(checked_schemas) == 7:
-            get_string_delete_oracle_scheme(connection_string, sysdba_name, sysdba_password, checked_schemas)
+        if connection_string and sysdba_name and sysdba_password:
+            self.schemas_progressbar.setRange(0, 0)
+            if len(checked_schemas) == 7:
+                connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name,
+                                                                sysdba_password, bd_name, checked_schemas)
+                result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+                self.input_schemas_area.append(result.strip())
+            elif len(checked_schemas) > 7:
+                for schema_name in checked_schemas:
+                    connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                    oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name,
+                                                                    sysdba_password, bd_name, schema_name)
+                    result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+                    self.input_schemas_area.append(result.strip())
+            else:
+                logger.warning('Не найдены отмеченные чекбоксами схемы')
+                self.msg_window('Проверьте отмечены ли схемы')
         else:
-            for schema_name in checked_schemas:
-                get_string_delete_oracle_scheme(connection_string, sysdba_name, sysdba_password, schema_name)
-        logger.info(f'Удаление схем завершено. Удаленные схемы {checked_schemas}')
+            logger.warning('Не заполнены все обязательные поля. Невозможно удалить схемы')
+            self.msg_window('Не заполнены все обязательные поля:\n'
+                            '\t- пользователь/пароль SYSDBA пользователя\n'
+                            '\t- строка подключения к CDB\n'
+                            '\t- имя PDB')
 
     def fn_checkbox_clicked_for_schemas(self, checked):
         """
@@ -567,11 +648,11 @@ class Window(QMainWindow):
         self.settings.setValue('credit1_ar_schemapass', self.input_schema3_pass.text())
         self.settings.setValue('deposit1_ar_schemapass', self.input_schema4_pass.text())
         self.settings.setValue('reserve_schemapass', self.input_schema5_pass.text())
-        self.settings.setValue('credit_pdb_schemaname', self.pdb_schema_name1.text())
-        self.settings.setValue('deposit_pdb_schemaname', self.pdb_schema_name2.text())
-        self.settings.setValue('credit_ar_pdb_schemaname', self.pdb_schema_name3.text())
-        self.settings.setValue('deposit_ar_pdb_schemaname', self.pdb_schema_name4.text())
-        self.settings.setValue('reserve_pdb_schemaname', self.pdb_schema_name5.text())
+        self.settings.setValue('credit_pdb_schemaname', self.pdb_schema1_name.text())
+        self.settings.setValue('deposit_pdb_schemaname', self.pdb_schema2_name.text())
+        self.settings.setValue('credit_ar_pdb_schemaname', self.pdb_schema3_name.text())
+        self.settings.setValue('deposit_ar_pdb_schemaname', self.pdb_schema4_name.text())
+        self.settings.setValue('reserve_pdb_schemaname', self.pdb_schema5_name.text())
         self.settings.setValue('credit_dump_path', self.path_schema1.text())
         self.settings.setValue('deposit_dump_path', self.path_schema2.text())
         self.settings.setValue('credit_ar_dump_path', self.path_schema3.text())
@@ -599,11 +680,11 @@ class Window(QMainWindow):
         self.input_schema3_pass.setText(self.settings.value('SCHEMAS/credit1_ar_schemapass'))
         self.input_schema4_pass.setText(self.settings.value('SCHEMAS/deposit1_ar_schemapass'))
         self.input_schema5_pass.setText(self.settings.value('SCHEMAS/reserve_schemapass'))
-        self.pdb_schema_name1.setText(self.settings.value('SCHEMAS/credit_pdb_schemaname'))
-        self.pdb_schema_name2.setText(self.settings.value('SCHEMAS/deposit_pdb_schemaname'))
-        self.pdb_schema_name3.setText(self.settings.value('SCHEMAS/credit_ar_pdb_schemaname'))
-        self.pdb_schema_name4.setText(self.settings.value('SCHEMAS/deposit_ar_pdb_schemaname'))
-        self.pdb_schema_name5.setText(self.settings.value('SCHEMAS/reserve_pdb_schemaname'))
+        self.pdb_schema1_name.setText(self.settings.value('SCHEMAS/credit_pdb_schemaname'))
+        self.pdb_schema2_name.setText(self.settings.value('SCHEMAS/deposit_pdb_schemaname'))
+        self.pdb_schema3_name.setText(self.settings.value('SCHEMAS/credit_ar_pdb_schemaname'))
+        self.pdb_schema4_name.setText(self.settings.value('SCHEMAS/deposit_ar_pdb_schemaname'))
+        self.pdb_schema5_name.setText(self.settings.value('SCHEMAS/reserve_pdb_schemaname'))
         self.path_schema1.setText(self.settings.value('SCHEMAS/credit_dump_path'))
         self.path_schema2.setText(self.settings.value('SCHEMAS/deposit_dump_path'))
         self.path_schema3.setText(self.settings.value('SCHEMAS/credit_ar_dump_path'))
@@ -699,8 +780,8 @@ class Window(QMainWindow):
         self.checkbox_schema1 = QCheckBox()
         self.checkbox_schema1.name = 'schema1'
         self.checkbox_schema1.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
-        self.pdb_schema_name1 = QLineEdit()
-        self.pdb_schema_name1.setPlaceholderText('Имя схемы в дампе')
+        self.pdb_schema1_name = QLineEdit()
+        self.pdb_schema1_name.setPlaceholderText('Имя схемы в дампе')
         self.input_schema2_name = QLineEdit()
         self.input_schema2_name.setPlaceholderText('Имя новой схемы')
         self.input_schema2_pass = QLineEdit()
@@ -709,8 +790,8 @@ class Window(QMainWindow):
         self.checkbox_schema2 = QCheckBox()
         self.checkbox_schema2.name = 'schema2'
         self.checkbox_schema2.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
-        self.pdb_schema_name2 = QLineEdit()
-        self.pdb_schema_name2.setPlaceholderText('Имя схемы в дампе')
+        self.pdb_schema2_name = QLineEdit()
+        self.pdb_schema2_name.setPlaceholderText('Имя схемы в дампе')
         self.input_schema3_name = QLineEdit()
         self.input_schema3_name.setPlaceholderText('Имя новой схемы')
         self.input_schema3_pass = QLineEdit()
@@ -719,8 +800,8 @@ class Window(QMainWindow):
         self.checkbox_schema3 = QCheckBox()
         self.checkbox_schema3.name = 'schema3'
         self.checkbox_schema3.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
-        self.pdb_schema_name3 = QLineEdit()
-        self.pdb_schema_name3.setPlaceholderText('Имя схемы в дампе')
+        self.pdb_schema3_name = QLineEdit()
+        self.pdb_schema3_name.setPlaceholderText('Имя схемы в дампе')
         self.input_schema4_name = QLineEdit()
         self.input_schema4_name.setPlaceholderText('Имя новой схемы')
         self.input_schema4_pass = QLineEdit()
@@ -729,8 +810,8 @@ class Window(QMainWindow):
         self.checkbox_schema4 = QCheckBox()
         self.checkbox_schema4.name = 'schema4'
         self.checkbox_schema4.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
-        self.pdb_schema_name4 = QLineEdit()
-        self.pdb_schema_name4.setPlaceholderText('Имя схемы в дампе')
+        self.pdb_schema4_name = QLineEdit()
+        self.pdb_schema4_name.setPlaceholderText('Имя схемы в дампе')
         self.input_schema5_name = QLineEdit()
         self.input_schema5_name.setPlaceholderText('Имя новой схемы')
         self.input_schema5_pass = QLineEdit()
@@ -739,12 +820,16 @@ class Window(QMainWindow):
         self.checkbox_schema5 = QCheckBox()
         self.checkbox_schema5.name = 'schema5'
         self.checkbox_schema5.stateChanged.connect(self.fn_checkbox_clicked_for_schemas)
-        self.pdb_schema_name5 = QLineEdit()
-        self.pdb_schema_name5.setPlaceholderText('Имя схемы в дампе')
+        self.pdb_schema5_name = QLineEdit()
+        self.pdb_schema5_name.setPlaceholderText('Имя схемы в дампе')
         self.btn_create_schema = QPushButton('Создать схему')
         self.btn_create_schema.clicked.connect(self.thread_creating_schemas)
         self.btn_delete_schema = QPushButton('Удалить схему')
         self.btn_delete_schema.clicked.connect(self.thread_deleting_schemas)
+        self.btn_show_schemas = QPushButton('Показать существующие схемы')
+        self.btn_show_schemas.clicked.connect(self.thread_showing_schemas)
+        self.btn_import_from_dumps = QPushButton('Импорт из дампа')
+        self.btn_import_from_dumps.clicked.connect(self.thread_import_from_dumps)
         self.path_schema1 = QLineEdit()
         self.path_schema1.setPlaceholderText('Введите путь или нажмите на кнопку')
         self.btn_path_schema1 = self.path_schema1.addAction(QIcon(self.btn_icon),
@@ -772,35 +857,38 @@ class Window(QMainWindow):
         self.btn_path_schema5.triggered.connect(self.fn_set_path_for_dumps)
         self.input_schemas_area = QTextEdit()
         self.schemas_progressbar = QProgressBar()
+        self.schemas_progressbar.setStyleSheet('text-align: center; min-height: 20px; max-height: 20px;')
         self.tab_schemas.layout.addWidget(self.checkbox_schema1, 0, 0)
         self.tab_schemas.layout.addWidget(self.input_schema1_name, 0, 1)
         self.tab_schemas.layout.addWidget(self.input_schema1_pass, 0, 2)
-        self.tab_schemas.layout.addWidget(self.pdb_schema_name1, 0, 3)
+        self.tab_schemas.layout.addWidget(self.pdb_schema1_name, 0, 3)
         self.tab_schemas.layout.addWidget(self.path_schema1, 0, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema2, 1, 0)
         self.tab_schemas.layout.addWidget(self.input_schema2_name, 1, 1)
         self.tab_schemas.layout.addWidget(self.input_schema2_pass, 1, 2)
-        self.tab_schemas.layout.addWidget(self.pdb_schema_name2, 1, 3)
+        self.tab_schemas.layout.addWidget(self.pdb_schema2_name, 1, 3)
         self.tab_schemas.layout.addWidget(self.path_schema2, 1, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema3, 2, 0)
         self.tab_schemas.layout.addWidget(self.input_schema3_name, 2, 1)
         self.tab_schemas.layout.addWidget(self.input_schema3_pass, 2, 2)
-        self.tab_schemas.layout.addWidget(self.pdb_schema_name3, 2, 3)
+        self.tab_schemas.layout.addWidget(self.pdb_schema3_name, 2, 3)
         self.tab_schemas.layout.addWidget(self.path_schema3, 2, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema4, 3, 0)
         self.tab_schemas.layout.addWidget(self.input_schema4_name, 3, 1)
         self.tab_schemas.layout.addWidget(self.input_schema4_pass, 3, 2)
-        self.tab_schemas.layout.addWidget(self.pdb_schema_name4, 3, 3)
+        self.tab_schemas.layout.addWidget(self.pdb_schema4_name, 3, 3)
         self.tab_schemas.layout.addWidget(self.path_schema4, 3, 4)
         self.tab_schemas.layout.addWidget(self.checkbox_schema5, 4, 0)
         self.tab_schemas.layout.addWidget(self.input_schema5_name, 4, 1)
         self.tab_schemas.layout.addWidget(self.input_schema5_pass, 4, 2)
-        self.tab_schemas.layout.addWidget(self.pdb_schema_name5, 4, 3)
+        self.tab_schemas.layout.addWidget(self.pdb_schema5_name, 4, 3)
         self.tab_schemas.layout.addWidget(self.path_schema5, 4, 4)
-        self.tab_schemas.layout.addWidget(self.btn_create_schema, 5, 1)
-        self.tab_schemas.layout.addWidget(self.schemas_progressbar, 5, 2, 1, 2)
+        self.tab_schemas.layout.addWidget(self.btn_show_schemas, 5, 1)
+        self.tab_schemas.layout.addWidget(self.btn_create_schema, 5, 2)
+        self.tab_schemas.layout.addWidget(self.btn_import_from_dumps, 5, 3)
         self.tab_schemas.layout.addWidget(self.btn_delete_schema, 5, 4)
-        self.tab_schemas.layout.addWidget(self.input_schemas_area, 6, 0, 1, 5)
+        self.tab_schemas.layout.addWidget(self.schemas_progressbar, 6, 2, 1, 2)
+        self.tab_schemas.layout.addWidget(self.input_schemas_area, 7, 0, 1, 5)
 
 
 if __name__ == '__main__':

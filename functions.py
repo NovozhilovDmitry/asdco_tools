@@ -206,12 +206,9 @@ def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_pas
     :param bd_name: имя pdb, в которой создана схема
     :return: выданы права для схемы
     """
-# IMP_FULL_DATABASE добавлена для теста
-# должна заменить собой необходимость ввода имени пользователя от которого производить импорт схем
     script = f"""alter session set container={bd_name};
 grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
 grant DBA to {schema_name};
-grant IMP_FULL_DATABASE to {schema_name};
 grant FLASHBACK ANY TABLE,UNLIMITED TABLESPACE, CREATE ANY DIRECTORY, ALTER SESSION, SELECT ANY DICTIONARY to {schema_name};
 grant SELECT on V_$SESSION to {schema_name};
 grant SELECT on V_$LOCKED_OBJECT to {schema_name};
@@ -261,18 +258,17 @@ exit;
     return cmd
 
 
-def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, schema_password, schema_dump_file):
+def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, schema_password, schema_name_in_dump, schema_dump_file):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
     :param pdb_name: имя pdb, к которой подключаемся для импорта
     :param schema_name: имя схемы
     :param schema_password: пароль от схемы
+    :param schema_name_in_dump: имя схемы в дампе
     :param schema_dump_file: путь к дампу
     :return: импорт схем из дампа
     """
-    # cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE'"
-# раскомментировать строку и удалить следующую, если не получится избежать использование имени от которого делался дамп
-    cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FULL=y GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE"
+    cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE'"
     logger.info(f'Вызов оракловского приложения для импортирования БД (imp.exe)')
     return cmd
 
@@ -280,7 +276,7 @@ def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, sc
 def get_string_enabled_oracle_asdco_options(connection_string, pdb_name, schema_name, schema_password):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
-    :param pdb_name: пароль пользователя SYSDBA
+    :param pdb_name: имя pdb, к которой подключаемся
     :param schema_name: имя схемы
     :param schema_password: пароль от схемы
     :return: обновление триггеров, функций и процедур
@@ -364,17 +360,18 @@ end;
     return cmd
 
 
-def get_string_delete_oracle_scheme(connection_string, sysdba_name, sysdba_password, schema_name):
+def get_string_delete_oracle_scheme(connection_string, sysdba_name, sysdba_password, pdb_name, schema_name):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA
+    :param pdb_name: имя pdb, к которой подключаемся
     :param schema_name: имя схемы, которая будет удалена
     :return: удаленная схема
     """
     script = f"drop user {schema_name} cascade;"
     script_file = create_script_file(script)
-    cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
+    cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
     return cmd
 
 
