@@ -634,7 +634,8 @@ class Window(QMainWindow):
         """
         self.settings.setValue('login', self.input_main_login.text())
         self.settings.setValue('connectline', self.line_main_connect.text())
-        self.settings.setValue('password', hashlib.md5(self.input_main_password.text().encode()).hexdigest())
+        if self.input_main_password.text() == '123devop' or self.input_main_password.text() == 'pay11d' or self.input_main_password.text() == 'pay12d':
+            self.settings.setValue('password', hashlib.md5(self.input_main_password.text().encode()).hexdigest())
         self.settings.setValue('PDB_name', self.list_pdb.currentText())
         self.settings.beginGroup('GUI')
         self.settings.setValue('width', self.geometry().width())
