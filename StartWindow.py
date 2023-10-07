@@ -43,7 +43,9 @@ from functions import (get_string_show_pdbs,
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 600
 TITLE = 'ASDCO TOOLS'
-MD5_HEX = 'cdb17afa0d724dbdcc7449c602228c30'
+MD5_HEX_DEVOP = 'cdb17afa0d724dbdcc7449c602228c30'
+MD5_HEX_P11 = 'fb0c143588fd40b0362ce4e63e7efa4d'
+MD5_HEX_P12 = '317ef52024ee7165512f802b272573c7'
 
 
 class WorkerSignals(QObject):
@@ -353,21 +355,37 @@ class Window(QMainWindow):
                                  '\t- строка подключения к CDB\n\t- имя PDB')
             raise Exception('Не заполнены все обязательные поля. Перевод PDB в режим записи прерван')
 
+    def thread_schemas_print_output(self, s):
+        """
+        :param s: передается результат из вызванной функции потока
+        :return: слот для сигнала из потока о завершении выполнения функции
+        """
+        self.btn_create_schema.setEnabled(True)
+        self.btn_delete_schema.setEnabled(True)
+        self.btn_show_schemas.setEnabled(True)
+        self.btn_import_from_dumps.setEnabled(True)
+        logger.debug(s)
+
     def thread_schemas_complete(self):
         """
         :return: слот для сигнала о завершении потока
         """
-        logger.info('Выделенный поток завершен. Прогресс бар установлен на 100%')
+        logger.debug('Выделенный поток завершен. Прогресс бар установлен на 100%')
         self.schemas_progressbar.setRange(0, 1)
 
     def thread_showing_schemas(self):
         """
         :return: передача функции по созданию схем в отдельном потоке
         """
+        self.btn_create_schema.setEnabled(False)
+        self.btn_delete_schema.setEnabled(False)
+        self.btn_show_schemas.setEnabled(False)
+        self.btn_import_from_dumps.setEnabled(False)
         logger.info(f'Запрошен список существующих схем в PDB {self.list_pdb.currentText()}')
         worker = Worker(self.fn_show_shemas)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
+        worker.signals.result.connect(self.thread_schemas_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
+        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
         self.threadpool.start(worker)
 
     def fn_show_shemas(self, progress_callback):
@@ -388,19 +406,23 @@ class Window(QMainWindow):
             return f'Функция {traceback.extract_stack()[-1][2]} завершена'
         else:
             logger.warning('Не заполнены все обязательные поля. Невозможно отобразить существующие схемы')
-            self.msg_window('Не заполнены все обязательные поля:\n'
-                            '\t- пользователь/пароль SYSDBA пользователя\n'
-                            '\t- строка подключения к CDB\n'
-                            '\t- имя PDB')
+            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
+                                 '\t- строка подключения к CDB\n\t- имя PDB')
+            raise Exception('Не заполнены все обязательные поля. Невозможно отобразить существующие схемы')
 
     def thread_creating_schemas(self):
         """
         :return: передача функции по созданию схем в отдельном потоке
         """
+        self.btn_create_schema.setEnabled(False)
+        self.btn_delete_schema.setEnabled(False)
+        self.btn_show_schemas.setEnabled(False)
+        self.btn_import_from_dumps.setEnabled(False)
         logger.info('Начато создание схем')
         worker = Worker(self.fn_creating_schemas)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
+        worker.signals.result.connect(self.thread_schemas_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
+        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
         self.threadpool.start(worker)
 
     def fn_creating_schemas(self, progress_callback):
@@ -429,10 +451,9 @@ class Window(QMainWindow):
                 return f'Функция {traceback.extract_stack()[-1][2]} завершена'
         else:
             logger.warning('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
-            self.msg_window('Не заполнены все обязательные поля:\n'
-                            '\t- пользователь/пароль SYSDBA пользователя\n'
-                            '\t- строка подключения к CDB\n'
-                            '\t- имя PDB')
+            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
+                                 '\t- строка подключения к CDB\n\t- имя PDB')
+            raise Exception('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
 
     def creating_schemas(self, connection_string, sysdba_name, sysdba_password, name, identified, bd_name):
         """
@@ -457,10 +478,7 @@ class Window(QMainWindow):
         :param bd_name: имя pdb, в которой будет создана схема
         :return: выданы привилегии для схем
         """
-        oracle_string = get_string_grant_oracle_privilege(connection_string,
-                                                          sysdba_name,
-                                                          sysdba_password,
-                                                          schema_name,
+        oracle_string = get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name,
                                                           bd_name)
         return runnings_sqlplus_scripts_with_subprocess(oracle_string)
 
@@ -468,10 +486,15 @@ class Window(QMainWindow):
         """
         :return: передача функции по созданию схем в отдельном потоке
         """
+        self.btn_create_schema.setEnabled(False)
+        self.btn_delete_schema.setEnabled(False)
+        self.btn_show_schemas.setEnabled(False)
+        self.btn_import_from_dumps.setEnabled(False)
         logger.info('Начат импорт из дампа')
         worker = Worker(self.fn_import_schemas)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
+        worker.signals.result.connect(self.thread_schemas_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
+        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
         self.threadpool.start(worker)
 
     def fn_import_schemas(self, progress_callback):
@@ -491,7 +514,7 @@ class Window(QMainWindow):
                 identified = eval('self.input_' + checked_schemas[0] + '_pass.text()')
                 dump_for_schema_path = eval('self.path_' + checked_schemas[0] + '.text()')
                 dump_name = eval('self.pdb_' + checked_schemas[0] + '_name.text()')
-                connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
                 oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, bd_name, name,
                                                                 identified, dump_name, dump_for_schema_path)
                 result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
@@ -504,7 +527,7 @@ class Window(QMainWindow):
                     dump_name = eval('self.pdb_' + schema_name + '_name.text()')
                     self.input_schemas_area.append(f'Начато выполнение импорта из дампа для схемы {name}')
                     logger.info(f'Начато выполнение импорта из дампа для схемы {name}')
-                    connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                    connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
                     oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, bd_name, name,
                                                                     identified, dump_name, dump_for_schema_path)
                     result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
@@ -517,16 +540,16 @@ class Window(QMainWindow):
                     return f'Функция {traceback.extract_stack()[-1][2]} завершена'
             else:
                 logger.warning('Не найдены отмеченные чекбоксами схемы')
-                self.msg_window('Проверьте отмечены ли схемы')
+                self.message_text = 'Не найдены отмеченные чекбоксами схемы'
+                raise Exception('Не найдены отмеченные чекбоксами схемы')
         else:
             logger.warning('Не заполнены все обязательные поля. Невозможно импортировать из дампа')
-            self.msg_window('Не заполнены все обязательные поля:\n'
-                            '\t- пользователь/пароль SYSDBA пользователя\n'
-                            '\t- строка подключения к CDB\n'
-                            '\t- имя PDB')
+            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
+                                 '\t- строка подключения к CDB\n\t- имя PDB')
+            raise Exception('Не заполнены все обязательные поля. Невозможно импортировать из дампа')
 
     def enabled_schemes_options(self, connection_string, pdb_name, schema_name, schema_password):
-        connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+        connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
         oracle_string = get_string_enabled_oracle_asdco_options(connection_string_without_orcl, pdb_name,
                                                                 schema_name, schema_password)
         return runnings_sqlplus_scripts_with_subprocess(oracle_string)
@@ -535,10 +558,15 @@ class Window(QMainWindow):
         """
         :return: передача функции по созданию схем в отдельном потоке
         """
+        self.btn_create_schema.setEnabled(False)
+        self.btn_delete_schema.setEnabled(False)
+        self.btn_show_schemas.setEnabled(False)
+        self.btn_import_from_dumps.setEnabled(False)
         logger.info('Начато удаление схем')
         worker = Worker(self.fn_deleting_schemas)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
+        worker.signals.result.connect(self.thread_schemas_print_output)  # сообщение после завершения выполнения задачи
         worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
+        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
         self.threadpool.start(worker)
 
     def fn_deleting_schemas(self, progress_callback):
@@ -556,27 +584,27 @@ class Window(QMainWindow):
         if connection_string and sysdba_name and sysdba_password:
             self.schemas_progressbar.setRange(0, 0)
             if len(checked_schemas) == 7:
-                connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
                 oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name,
                                                                 sysdba_password, bd_name, checked_schemas)
                 result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
                 self.input_schemas_area.append(result.strip())
             elif len(checked_schemas) > 7:
                 for schema_name in checked_schemas:
-                    connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                    connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
                     oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name,
                                                                     sysdba_password, bd_name, schema_name)
                     result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
                     self.input_schemas_area.append(result.strip())
             else:
                 logger.warning('Не найдены отмеченные чекбоксами схемы')
-                self.msg_window('Проверьте отмечены ли схемы')
+                self.message_text = 'Проверьте отмечены ли схемы'
+                raise Exception('Не найдены отмеченные чекбоксами схемы')
         else:
             logger.warning('Не заполнены все обязательные поля. Невозможно удалить схемы')
-            self.msg_window('Не заполнены все обязательные поля:\n'
-                            '\t- пользователь/пароль SYSDBA пользователя\n'
-                            '\t- строка подключения к CDB\n'
-                            '\t- имя PDB')
+            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
+                                 '\t- строка подключения к CDB\n\t- имя PDB')
+            raise Exception('Не заполнены все обязательные поля. Невозможно удалить схемы')
 
     def fn_checkbox_clicked_for_schemas(self, checked):
         """
@@ -676,10 +704,12 @@ class Window(QMainWindow):
             logger.info('Настройки размеров окна загружены.')
         except TypeError:
             logger.info('Установлены размеры окна по умолчанию')
-        if self.settings.value('password') == MD5_HEX:
+        if self.settings.value('password') == MD5_HEX_DEVOP:
             self.input_main_password.setText('123devop')
-        else:
-            self.input_main_password.setText('')
+        elif self.settings.value('password') == MD5_HEX_P11:
+            self.input_main_password.setText('pay11d')
+        elif self.settings.value('password') == MD5_HEX_P12:
+            self.input_main_password.setText('pay12d')
         logger.info('Файл с пользовательскими настройками проинициализирован')
 
     def header_layout(self):
