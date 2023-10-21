@@ -1,9 +1,9 @@
 import sys
-import traceback
 import re
+from datetime import datetime, date
 from myLogging import logger
 from PyQt6.QtGui import QPixmap, QIcon
-from PyQt6.QtCore import QThreadPool, QSettings, QProcess
+from PyQt6.QtCore import QSettings, QProcess
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QLabel, QGridLayout, QApplication, QPushButton, QLineEdit, QTextEdit,
                              QCheckBox, QComboBox, QVBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
                              QProgressBar, QFileDialog, QMessageBox)
@@ -22,7 +22,7 @@ from functions import (get_string_show_pdbs,
                        get_string_import_oracle_schema,
                        get_string_delete_oracle_scheme,
                        create_file_for_pdb,
-                       last_login_to_common_schemas)
+                       get_last_login_to_common_schemas)
 
 
 WINDOW_WIDTH = 1000
@@ -147,7 +147,7 @@ class Window(QMainWindow):
             if connection_string and sysdba_name and sysdba_password:
                 self.pdb_progressbar.setRange(0, 0)  # запускается бесконечный прогресс бар
                 oracle_string = get_string_show_pdbs(connection_string, sysdba_name, sysdba_password)
-                self.full_path_to_file = create_file_for_pdb()
+                self.full_path_to_file = create_file_for_pdb('pdb_name.txt')
                 self.process = QProcess()
                 self.process.readyReadStandardError.connect(self.handle_stderr)  # сигнал об ошибках
                 self.process.readyReadStandardOutput.connect(self.handle_stdout_pdb_list)  # сигнал во время работы
@@ -657,6 +657,79 @@ class Window(QMainWindow):
         else:
             logger.warning('Вызван новый процесс до завершения старого')
 
+    def handle_stdout_check_last_login(self):
+        """
+        :return: отлавливаем поток данных из запущенной через QProcess программы
+        """
+        data = self.process.readAllStandardOutput()
+        stdout = bytes(data).decode("utf8")
+        find_ora_error = re.compile("ORA-\d{1,5}:")
+        searching_in_stdout = find_ora_error.search(stdout)
+        try:
+            start = stdout.find(searching_in_stdout.group(0))
+            self.error_message = stdout.strip()[start:]
+            self.process.kill()
+        except:
+            self.input_schemas_area.append('Найдены схемы в PDB\n')
+            self.input_schemas_area.append(stdout.strip())
+            with open(self.full_path_to_file_username, 'a') as file:
+                file.write(stdout)
+            return self.process.exitCode()
+
+    def check_last_login_process_finished(self):
+        """
+        :return: отлавливаем сигнал о завершении процесса
+        """
+        if self.process.exitCode() != 0:
+            self.process = None
+            self.pdb_progressbar.setRange(0, 1)
+            logger.warning('Процесс завершен с ошибками')
+            self.message_text = self.error_message
+            self.msg_window()
+        elif self.process.exitCode() == 0:
+            self.process = None
+            self.pdb_progressbar.setRange(0, 1)
+            with open(self.full_path_to_file_username, 'r') as file:
+                data = file.read()
+            temp_dict = dict()
+            temp_list = [[i for i in elements.split('; ')] for elements in data.split('\n')]
+            for i in temp_list:
+                temp_dict[i[0]] = i[1].split(' ')[0]
+            current_date = str(datetime.now().date())
+            for key, value in temp_dict.items():
+                value_date = str(datetime.strptime(value, '%d.%m.%Y')).split(' ')[0]
+                delta_days = str(date.fromisoformat(current_date) - date.fromisoformat(value_date)).split(' ')[0]
+                if int(delta_days) > 20:
+                    print(f'CHECK FOR DELETE THIS SHIT {key}')
+            logger.info('Процесс завершен без ошибок')
+
+    def check_last_login(self):
+        """
+        :return: проверить последний вход пользователей, отмеченных чекбоксом
+        """
+        connection_string = self.line_main_connect.text()
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
+        bd_name = self.list_pdb.currentText().upper()
+        if self.process is None:
+            if connection_string and sysdba_name and sysdba_password and bd_name:
+                self.schemas_progressbar.setRange(0, 0)
+                oracle_string = get_last_login_to_common_schemas(connection_string, sysdba_name, sysdba_password, bd_name)
+                self.full_path_to_file_username = create_file_for_pdb('username_and_date.txt')
+                self.process = QProcess()
+                self.process.readyReadStandardError.connect(self.handle_stderr)
+                self.process.readyReadStandardOutput.connect(self.handle_stdout_check_last_login)
+                self.process.finished.connect(self.check_last_login_process_finished)
+                self.process.startCommand(oracle_string)
+                logger.info('Запущена проверка последнего входа для созданных пользователей')
+            else:
+                logger.warning('Не заполнены все обязательные поля. Невозможно отобразить последний вход пользователей')
+                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                     '\t- строка подключения к CDB\n\t- имя PDB')
+                self.msg_window()
+        else:
+            logger.warning('Вызван новый процесс до завершения старого')
+
     def fn_checkbox_clicked_for_schemas(self, checked):
         """
         :param checked: принимаем статус чекбокса
@@ -886,6 +959,8 @@ class Window(QMainWindow):
         self.btn_show_schemas.clicked.connect(self.get_pdbs_schemas)
         self.btn_import_from_dumps = QPushButton('Импорт из дампа')
         self.btn_import_from_dumps.clicked.connect(self.import_from_dumps_to_schemas)
+        self.btn_check_users_last_login = QPushButton('Проверить последний вход пользователя')
+        self.btn_check_users_last_login.clicked.connect(self.check_last_login)
         self.path_schema1 = QLineEdit()
         self.path_schema1.setPlaceholderText('Введите путь или нажмите на кнопку')
         self.btn_path_schema1 = self.path_schema1.addAction(QIcon(self.btn_icon),
@@ -943,6 +1018,7 @@ class Window(QMainWindow):
         self.tab_schemas.layout.addWidget(self.btn_create_schema, 5, 2)
         self.tab_schemas.layout.addWidget(self.btn_import_from_dumps, 5, 3)
         self.tab_schemas.layout.addWidget(self.btn_delete_schema, 5, 4)
+        self.tab_schemas.layout.addWidget(self.btn_check_users_last_login, 6, 4)
         self.tab_schemas.layout.addWidget(self.schemas_progressbar, 6, 2, 1, 2)
         self.tab_schemas.layout.addWidget(self.input_schemas_area, 7, 0, 1, 5)
 

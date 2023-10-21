@@ -29,12 +29,13 @@ def create_script_file(script):
     return file_name
 
 
-def create_file_for_pdb():
+def create_file_for_pdb(filename):
     """
+    :filename: имя создаваемого файла
     :return: создать файл, в который будут записаны результаты для PDB
     """
     directory_name = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
-    file_name = directory_name.joinpath('pdb_list.txt')
+    file_name = directory_name.joinpath(filename)
     with open(file_name, 'w'):
         pass
     return file_name
@@ -377,7 +378,7 @@ exit;"""
     return cmd
 
 
-def last_login_to_common_schemas(connection_string, sysdba_name, sysdba_password, pdb_name):
+def get_last_login_to_common_schemas(connection_string, sysdba_name, sysdba_password, pdb_name):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
     :param sysdba_name: логин пользователя SYSDBA
@@ -386,7 +387,8 @@ def last_login_to_common_schemas(connection_string, sysdba_name, sysdba_password
     :return: показывает последний вход пользователей
     """
     script = f"""alter session set container={pdb_name};
-select USERNAME, LAST_LOGIN from dba_users where COMMON=NO;
+set heading off
+select USERNAME || '; ' || to_char(LAST_LOGIN, 'DD.MM.YYYY HH24:MI:SS') from dba_users where COMMON='NO' and LAST_LOGIN is not null;
 exit;"""
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
