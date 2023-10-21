@@ -31,7 +31,7 @@ def create_script_file(script):
 
 def create_file_for_pdb():
     """
-    :return:
+    :return: создать файл, в который будут записаны результаты для PDB
     """
     directory_name = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
     file_name = directory_name.joinpath('pdb_list.txt')
@@ -75,7 +75,7 @@ order by name;
 exit;
     """
     script_file = create_script_file(script)
-    cmd = f'sqlplus -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
     logger.info(f'Подключение к {connection_string} под пользователем {sysdba_name}')
     return cmd
 
@@ -168,24 +168,25 @@ def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_pa
     :param sysdba_password: пароль пользователя SYSDBA
     :return: проверяется возможность подключения к pdb
     """
-    script = f"""select 'CONNECTION SUCCESS' as result from dual;
+    script = f"""set heading off 
+select 'CONNECTION SUCCESS' from dual;
 exit;"""
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
     return cmd
 
 
-def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, schema_name, schema_password, bd_name):
+def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, schema_name, schema_password, pdb_name):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA
     :param schema_name: имя новой схемы
     :param schema_password: пароль для схемы
-    :param bd_name: имя pdb, в которой будет создана схема
+    :param pdb_name: имя pdb, в которой будет создана схема
     :return: создана схема
     """
-    script = f"""alter session set container={bd_name};
+    script = f"""alter session set container={pdb_name};
 create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
 exit;"""
     script_file = create_script_file(script)
@@ -194,16 +195,16 @@ exit;"""
     return cmd
 
 
-def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name, bd_name):
+def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name, pdb_name):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA
     :param schema_name: имя схемы, которой даются права
-    :param bd_name: имя pdb, в которой создана схема
+    :param pdb_name: имя pdb, в которой создана схема
     :return: выданы права для схемы
     """
-    script = f"""alter session set container={bd_name};
+    script = f"""alter session set container={pdb_name};
 grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
 grant FLASHBACK ANY TABLE,UNLIMITED TABLESPACE, CREATE ANY DIRECTORY, ALTER SESSION, SELECT ANY DICTIONARY to {schema_name};
 grant SELECT on V_$SESSION to {schema_name};
@@ -233,17 +234,18 @@ exit;
     return cmd
 
 
-def get_string_show_oracle_users(connection_string, sysdba_name, sysdba_password, bd_name):
+def get_string_show_oracle_users(connection_string, sysdba_name, sysdba_password, pdb_name):
     """
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
-    :param bd_name: имя pdb, в которой создана схема
+    :param pdb_name: имя pdb, в которой создана схема
     :return: показывает созданные схемы
     """
-    script = f"""alter session set container={bd_name};
+    script = f"""alter session set container={pdb_name};
 column USERNAME format A40;
 alter session set NLS_DATE_FORMAT = 'YYYY.MM.DD HH24:MI:SS';
+set heading off
 set linesize 60;
 select USERNAME, CREATED from dba_users where COMMON='NO';
 exit;
@@ -264,7 +266,9 @@ def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, sc
     :param schema_dump_file: путь к дампу
     :return: импорт схем из дампа
     """
-    cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE'"
+    cmd = f"""imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE'
+exit;
+"""
     logger.info(f'Вызов оракловского приложения для импортирования БД (imp.exe)')
     return cmd
 
@@ -348,6 +352,7 @@ end if;
 end;
 end loop;
 end;
+exit;
 /
 """
     script_file = create_script_file(script)
@@ -365,9 +370,26 @@ def get_string_delete_oracle_scheme(connection_string, sysdba_name, sysdba_passw
     :param schema_name: имя схемы, которая будет удалена
     :return: удаленная схема
     """
-    script = f"drop user {schema_name} cascade;"
+    script = f"""drop user {schema_name} cascade;
+exit;"""
     script_file = create_script_file(script)
-    cmd = f'echo exit | sqlplus.exe {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
+    return cmd
+
+
+def last_login_to_common_schemas(connection_string, sysdba_name, sysdba_password, pdb_name):
+    """
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param pdb_name: имя pdb, к которой подключаемся
+    :return: показывает последний вход пользователей
+    """
+    script = f"""alter session set container={pdb_name};
+select USERNAME, LAST_LOGIN from dba_users where COMMON=NO;
+exit;"""
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
     return cmd
 
 
