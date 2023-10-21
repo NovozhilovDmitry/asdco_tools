@@ -2,7 +2,6 @@ import time
 import sys
 import shutil
 import pathlib
-import subprocess
 from myLogging import logger
 
 
@@ -30,6 +29,17 @@ def create_script_file(script):
     return file_name
 
 
+def create_file_for_pdb():
+    """
+    :return:
+    """
+    directory_name = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
+    file_name = directory_name.joinpath('pdb_list.txt')
+    with open(file_name, 'w'):
+        pass
+    return file_name
+
+
 def delete_temp_directory():
     """
     :return: при штатном выходе из программы удаляется врменный каталог temp
@@ -43,21 +53,7 @@ def delete_temp_directory():
             logger.error(f'Невозможно удалить директорию {TEMP_DIRECTORY} по причине {error}')
 
 
-def runnings_sqlplus_scripts_with_subprocess(cmd, return_split_result=False):
-    """
-    функция для запуска sql скриптов с помощью модуля subprocess и метода run
-    :param cmd: передается строка подключения и sql скрипт
-    :param return_split_result: если true - возвращает дополнительно список разбитый по разделителю конца строки
-    :return: возвращает результат выполнения
-    """
-    result = subprocess.run(cmd, stdout=subprocess.PIPE).stdout.decode('1251')
-    if return_split_result:
-        return result, result.split('\r\n')
-    else:
-        return result
-
-
-def get_string_show_pdbs(sysdba_name, sysdba_password, connection_string):
+def get_string_show_pdbs(connection_string, sysdba_name, sysdba_password):
     """
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA
@@ -74,11 +70,12 @@ set NUMWIDTH 11
 set NUMFORMAT 99,999,999,999
 select name, creation_time, open_mode, total_size
 from v$pdbs
+where name not in ('ASDCOEMPTY_ETALON', 'PDB$SEED')
 order by name;
 exit;
     """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    cmd = f'sqlplus -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
     logger.info(f'Подключение к {connection_string} под пользователем {sysdba_name}')
     return cmd
 
@@ -208,7 +205,6 @@ def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_pas
     """
     script = f"""alter session set container={bd_name};
 grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
-grant DBA to {schema_name};
 grant FLASHBACK ANY TABLE,UNLIMITED TABLESPACE, CREATE ANY DIRECTORY, ALTER SESSION, SELECT ANY DICTIONARY to {schema_name};
 grant SELECT on V_$SESSION to {schema_name};
 grant SELECT on V_$LOCKED_OBJECT to {schema_name};
@@ -237,7 +233,7 @@ exit;
     return cmd
 
 
-def get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string, bd_name):
+def get_string_show_oracle_users(connection_string, sysdba_name, sysdba_password, bd_name):
     """
     :param sysdba_name: логин пользователя SYSDBA
     :param sysdba_password: пароль пользователя SYSDBA

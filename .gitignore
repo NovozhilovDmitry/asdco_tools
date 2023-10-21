@@ -2,4 +2,4 @@
 /logger.log
 /.idea
 .idea
-.idea/*.iml
+*/__pycache__

@@ -1,31 +1,14 @@
 import sys
 import traceback
 import re
-import hashlib
 from myLogging import logger
 from PyQt6.QtGui import QPixmap, QIcon
-from PyQt6.QtCore import QRunnable, QThreadPool, QSettings, QObject, pyqtSignal, pyqtSlot
-from PyQt6.QtWidgets import (QMainWindow,
-                             QWidget,
-                             QLabel,
-                             QGridLayout,
-                             QApplication,
-                             QPushButton,
-                             QLineEdit,
-                             QTextEdit,
-                             QCheckBox,
-                             QComboBox,
-                             QVBoxLayout,
-                             QTabWidget,
-                             QTableWidget,
-                             QTableWidgetItem,
-                             QHeaderView,
-                             QProgressBar,
-                             QFileDialog,
-                             QMessageBox)
+from PyQt6.QtCore import QThreadPool, QSettings, QProcess
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QLabel, QGridLayout, QApplication, QPushButton, QLineEdit, QTextEdit,
+                             QCheckBox, QComboBox, QVBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
+                             QProgressBar, QFileDialog, QMessageBox)
 from functions import (get_string_show_pdbs,
                        delete_temp_directory,
-                       runnings_sqlplus_scripts_with_subprocess,
                        get_string_check_oracle_connection,
                        formating_sqlplus_results_and_return_pdb_names,
                        get_string_clone_pdb,
@@ -37,45 +20,13 @@ from functions import (get_string_show_pdbs,
                        get_string_show_oracle_users,
                        get_string_enabled_oracle_asdco_options,
                        get_string_import_oracle_schema,
-                       get_string_delete_oracle_scheme)
+                       get_string_delete_oracle_scheme,
+                       create_file_for_pdb)
 
 
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 600
 TITLE = 'ASDCO TOOLS'
-MD5_HEX_DEVOP = 'cdb17afa0d724dbdcc7449c602228c30'
-MD5_HEX_P11 = 'fb0c143588fd40b0362ce4e63e7efa4d'
-MD5_HEX_P12 = '317ef52024ee7165512f802b272573c7'
-
-
-class WorkerSignals(QObject):
-    finish = pyqtSignal()
-    error = pyqtSignal(tuple)
-    result = pyqtSignal(object)
-    progress = pyqtSignal(int)
-
-
-class Worker(QRunnable):
-    def __init__(self, fn, *args, **kwargs):
-        super(Worker, self).__init__()
-        self.fn = fn
-        self.args = args
-        self.kwargs = kwargs
-        self.signals = WorkerSignals()
-        kwargs['progress_callback'] = self.signals.progress
-
-    @pyqtSlot()
-    def run(self):
-        try:  # выполняем переданный из window метод
-            result = self.fn(*self.args, **self.kwargs)
-        except:
-            traceback.print_exc()
-            exctype, value = sys.exc_info()[:2]
-            self.signals.error.emit((exctype, value, traceback.format_exc()))
-        else:  # если ошибок не было, то формируем сигнал .result и передаем результат
-            self.signals.result.emit(result)  # Вернуть результат обработки
-        finally:
-            self.signals.finish.emit()  # Готово
 
 
 class Window(QMainWindow):
@@ -102,23 +53,9 @@ class Window(QMainWindow):
         self.layout.setLayout(self.main_layout)
         self.setCentralWidget(self.layout)
         self.initialization_settings()  # вызов функции с инициализацией сохраненных значений
-
-    def thread_print_output(self, s):
-        """
-        :param s: передается результат из вызванной функции потока
-        :return: слот для сигнала из потока о завершении выполнения функции
-        """
-        self.btn_clone_pdb.setEnabled(True)
-        self.btn_delete_pdb.setEnabled(True)
-        self.btn_make_pdb_for_write.setEnabled(True)
-        logger.debug(s)
-
-    def thread_print_complete(self):
-        """
-        :return: слот для сигнала о завершении потока
-        """
-        logger.debug('Выделенный поток завершен. Прогресс бар установлен на 100%')
-        self.pdb_progressbar.setRange(0, 1)
+        self.process = None  #
+        self.message_text = ''  #
+        self.finish_message = ''  #
 
     def msg_window(self):
         """
@@ -132,35 +69,53 @@ class Window(QMainWindow):
         dlg.setIcon(QMessageBox.Icon.Warning)
         dlg.exec()
 
-    def thread_check_pdb(self):
+    def handle_stderr(self):
         """
-        :return: передача функции по проверки pdb в отдельном потоке
+        :return: отлавливаем ошибки из запущенной через QProcess программы
         """
-        logger.info('Запрошен список существующих PDB')
-        worker = Worker(self.fn_check_pdb)  # функция, которая выполняется в потоке
-        # worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
-        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
-        self.threadpool.start(worker)
+        data = self.process.readAllStandardError()
+        stderr = bytes(data).decode("utf8")
+        logger.error(stderr)
+        self.error_message = stderr
 
-    def fn_check_pdb(self, progress_callback):
+    def handle_stdout_pdb_list(self):
         """
-        :param progress_callback: передача результатов из класса потока
-        :return: передает сообщение в функцию thread_print_output
+        :return: отлавливаем поток данных из запущенной через QProcess программы
         """
-        connection_string = self.line_main_connect.text()  # строка подключения из интерфейса
-        sysdba_name = self.input_main_login.text()  # имя пользователя из интерфейса
-        sysdba_password = self.input_main_password.text()  # пароль
-        if connection_string and sysdba_name and sysdba_password:
-            self.pdb_progressbar.setRange(0, 0)  # запускается бесконечный прогресс бар
-            oracle_string = get_string_show_pdbs(sysdba_name, sysdba_password, connection_string)
-            result, list_result = runnings_sqlplus_scripts_with_subprocess(oracle_string, return_split_result=True)
-            self.pdb_name_list = formating_sqlplus_results_and_return_pdb_names(list_result)
+        data = self.process.readAllStandardOutput()
+        stdout = bytes(data).decode("utf8")
+        find_ora_error = re.compile("ORA-\d{1,5}:")
+        searching_in_stdout = find_ora_error.search(stdout)
+        try:
+            start = stdout.find(searching_in_stdout.group(0))
+            self.error_message = stdout.strip()[start:]
+            self.process.kill()
+        except:
+            with open(self.full_path_to_file, 'a') as file:
+                file.write(stdout)
+            return self.process.exitCode()
+
+    def process_pdb_list_finished(self):
+        """
+        :return: отлавливаем сигнал о завершении процесса и выводим список баз данных
+        """
+        if self.process.exitCode() != 0:
+            self.process = None
+            self.pdb_progressbar.setRange(0, 1)
+            logger.warning('Ошибка. Процесс завершен')
+            self.message_text = self.error_message
+            self.msg_window()
+        elif self.process.exitCode() == 0:
+            current_pdb = self.list_pdb.currentText()
+            with open(self.full_path_to_file, 'r') as file:
+                data = file.read()
+            result_list = data.split('\n\n')
+            self.pdb_name_list = formating_sqlplus_results_and_return_pdb_names(result_list)
             self.table.setSortingEnabled(False)  # отключаем возможность сортировки по столбцам
             self.table.setRowCount(len(self.pdb_name_list))  # количество строк по длине списка
             self.table.setColumnCount(4)  # количество столбцов
             self.table.setHorizontalHeaderLabels(['Имя', 'Дата создания', 'Статус', 'Размер'])  # названия столбцов
-            new_list = format_list_result(list_result)
+            new_list = format_list_result(result_list)
             row = 0
             for i in new_list:
                 self.table.setItem(row, 0, QTableWidgetItem(i[0]))
@@ -171,408 +126,425 @@ class Window(QMainWindow):
             self.list_pdb.clear()
             for i in self.pdb_name_list:
                 self.list_pdb.addItem(i)
+            current_index = self.list_pdb.findText(current_pdb)
+            self.list_pdb.setCurrentIndex(current_index)
             self.table.setSortingEnabled(True)
             self.table.sortItems(0)
-            return f'Функция {traceback.extract_stack()[-1][2]} завершена'
+            self.process = None
+            self.pdb_progressbar.setRange(0, 1)
+    
+    def execute_command_pdbnames(self, cmd):
+        """
+        :param cmd: строка для запуска ПО вместе  аргументами
+        :return: запускается программа и подключаются сигналы к слотам
+        """
+        self.process = QProcess()
+        self.process.readyReadStandardError.connect(self.handle_stderr)  # сигнал об ошибках
+        self.process.readyReadStandardOutput.connect(self.handle_stdout_pdb_list)  # сигнал во время работы
+        self.process.finished.connect(self.process_pdb_list_finished)  # сигнал после завершения всех задач
+        self.process.startCommand(cmd)
+
+    def get_pdb_name_from_bd(self):
+        """
+        :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
+        """
+        connection_string = self.line_main_connect.text()  # строка подключения из интерфейса
+        sysdba_name = self.input_main_login.text()  # имя пользователя из интерфейса
+        sysdba_password = self.input_main_password.text()  # пароль
+        if self.process is None:
+            if connection_string and sysdba_name and sysdba_password:
+                self.pdb_progressbar.setRange(0, 0)  # запускается бесконечный прогресс бар
+                oracle_string = get_string_show_pdbs(connection_string, sysdba_name, sysdba_password)
+                self.full_path_to_file = create_file_for_pdb()
+                self.execute_command_pdbnames(oracle_string)
+                logger.info('Запущена процедура получения списка PDB')
+            else:
+                logger.warning('Не заполнены все обязательные поля. Проверка подключения прервана')
+                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                     '\t- строка подключения к CDB\n\t- имя PDB')
+                self.msg_window()
         else:
-            logger.warning('Не заполнены все обязательные поля. Список PDB не получен')
-            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
-                                 '\t- строка подключения к CDB')
-            raise Exception('Не заполнены все обязательные поля. Список PDB не получен')
+            logger.warning('Вызван новый процесс до завершения старого')
 
-    def thread_check_connection(self):
+    def handle_stdout_connect(self):
         """
-        :return: передача функции по проверке подключения к cdb в отдельном потоке
+        :return: отлавливаем поток данных из запущенной через QProcess программы
         """
-        logger.info('Проверка подключения к PDB')
-        self.btn_clone_pdb.setEnabled(False)
-        self.btn_delete_pdb.setEnabled(False)
-        self.btn_make_pdb_for_write.setEnabled(False)
-        worker = Worker(self.fn_check_connect)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
-        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
-        self.threadpool.start(worker)
+        data = self.process.readAllStandardOutput()
+        stdout = bytes(data).decode("utf8")
+        find_ora_error = re.compile("ORA-\d{1,5}:")
+        searching_in_stdout = find_ora_error.search(stdout)
+        try:
+            start = stdout.find(searching_in_stdout.group(0))
+            self.error_message = stdout.strip()[start:]
+            self.process.kill()
+        except:
+            ora_not_error = re.search(r'CONNECTION SUCCESS', stdout)
+            if ora_not_error.group(0):
+                logger.info('Успешное подключение к PDB')
+                self.stdout_data = stdout
+            else:
+                logger.warning(stdout.strip())
+                self.error_message = stdout.strip()
+            return self.process.exitCode()
 
-    def fn_check_connect(self, progress_callback):
+    def process_finished_connect(self):
         """
-        :param progress_callback: передача результатов из класса потока
-        :return: передает сообщение в функцию thread_print_output
+        :return: отлавливаем сигнал о завершении процесса и выводим список баз данных
+        """
+        if self.process.exitCode() != 0:
+            self.process = None
+            self.pdb_progressbar.setRange(0, 1)
+            self.btn_clone_pdb.setEnabled(False)
+            self.btn_delete_pdb.setEnabled(False)
+            self.btn_make_pdb_for_write.setEnabled(False)
+            logger.warning('Процесс завершен с ошибками')
+            self.message_text = self.error_message
+            self.msg_window()
+        elif self.process.exitCode() == 0:
+            self.process = None
+            self.pdb_progressbar.setRange(0, 1)
+            self.btn_clone_pdb.setEnabled(True)
+            self.btn_delete_pdb.setEnabled(True)
+            self.btn_make_pdb_for_write.setEnabled(True)
+            logger.info('Процесс завершен без ошибок')
+
+    def execute_command_connect(self, cmd):
+        """
+        :param cmd: строка для запуска ПО вместе  аргументами
+        :return: запускается программа и подключаются сигналы к слотам
+        """
+        self.process = QProcess()
+        self.process.readyReadStandardError.connect(self.handle_stderr)  # сигнал об ошибках
+        self.process.readyReadStandardOutput.connect(self.handle_stdout_connect)  # сигнал во время работы
+        self.process.finished.connect(self.process_finished_connect)  # сигнал после завершения всех задач
+        self.process.startCommand(cmd)
+
+    def check_connect_to_pdb(self):
+        """
+        :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
         """
         pdb_name = self.list_pdb.currentText().upper()
         connection_string = self.line_main_connect.text()[:self.line_main_connect.text().rfind('/')+1] + pdb_name
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
-        if pdb_name and connection_string and sysdba_name and sysdba_password:
-            self.pdb_progressbar.setRange(0, 0)
-            oracle_string = get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password)
-            result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-            ora_not_error = re.search(r'CONNECTION SUCCESS', result)
-            if ora_not_error.group(0):
-                logger.info(result.strip())
-                return f'Функция {traceback.extract_stack()[-1][2]} завершена'
+        if self.process is None:
+            if pdb_name and connection_string and sysdba_name and sysdba_password:
+                self.pdb_progressbar.setRange(0, 0)
+                oracle_string = get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password)
+                self.execute_command_connect(oracle_string)
+                logger.info('Запущена процедура проверки подключения к PDB')
             else:
-                logger.warning(result.strip(), exc_info=True)
-                return f'Не удалось подключиться к PDB. Возможны ошибки на сервере'
+                logger.warning('Не заполнены все обязательные поля. Проверка подключения прервана')
+                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                     '\t- строка подключения к CDB\n\t- имя PDB')
+                self.msg_window()
         else:
-            logger.warning('Не заполнены все обязательные поля. Проверка подключения прервана')
-            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
-                                 '\t- строка подключения к CDB\n\t- имя PDB')
-            raise Exception('Не заполнены все обязательные поля. Проверка подключения прервана')
+            logger.warning('Вызван новый процесс до завершения старого')
 
-    def thread_cloning_pdb(self):
+    def handle_stdout(self):
         """
-        :return: передача функции клонирования pdb в отдельном потоке
+        :return: отлавливаем поток данных из запущенной через QProcess программы
         """
-        logger.info('Клонирование PDB')
-        self.btn_clone_pdb.setEnabled(False)
-        self.btn_delete_pdb.setEnabled(False)
-        self.btn_make_pdb_for_write.setEnabled(False)
-        worker = Worker(self.fn_cloning_pdb)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
-        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
-        self.threadpool.start(worker)
+        data = self.process.readAllStandardOutput()
+        stdout = bytes(data).decode("utf8")
+        find_ora_error = re.compile("ORA-\d{1,5}:")
+        searching_in_stdout = find_ora_error.search(stdout)
+        try:
+            start = stdout.find(searching_in_stdout.group(0))
+            self.error_message = stdout.strip()[start:]
+            self.process.kill()
+        except:
+            return self.process.exitCode()
 
-    def fn_cloning_pdb(self, progress_callback):
+    def process_finished(self):
         """
-        :param progress_callback: передача результатов из класса потока
-        :return: передает сообщение в функцию thread_print_output
+        :return: отлавливаем сигнал о завершении процесса и выводим список баз данных
+        """
+        if self.process.exitCode() != 0:
+            self.process = None
+            self.pdb_progressbar.setRange(0, 1)
+            logger.warning('Процесс завершен с ошибками')
+            self.message_text = self.error_message
+            self.msg_window()
+        elif self.process.exitCode() == 0:
+            self.process = None
+            self.pdb_progressbar.setRange(0, 1)
+            self.btn_connect.setEnabled(True)
+            self.btn_clone_pdb.setEnabled(True)
+            self.btn_delete_pdb.setEnabled(True)
+            self.btn_make_pdb_for_write.setEnabled(True)
+            logger.info('Перезаполнение списка PDB и таблицы')
+            self.get_pdb_name_from_bd()
+            logger.info(f'Функция выполнена "{self.finish_message}"')
+            logger.info('Процесс завершен без ошибок')
+
+    def execute_command(self, cmd):
+        """
+        :param cmd: строка для запуска ПО вместе  аргументами
+        :return: запускается программа и подключаются сигналы к слотам
+        """
+        self.process = QProcess()
+        self.process.readyReadStandardError.connect(self.handle_stderr)  # сигнал об ошибках
+        self.process.readyReadStandardOutput.connect(self.handle_stdout)  # сигнал во время работы
+        self.process.finished.connect(self.process_finished)  # сигнал после завершения всех задач
+        self.process.startCommand(cmd)
+
+    def cloning_pdb(self):
+        """
+        :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
         """
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
         pdb_name_clone = self.input_newpdb.text().upper()
-        if connection_string and schema_name and schema_password and pdb_name and pdb_name_clone:
-            self.pdb_progressbar.setRange(0, 0)
-            if pdb_name_clone == 'ASDCOEMPTY_ETALON' or pdb_name_clone == 'PDB$SEED':
-                logger.error('Заблокирована попытка клонирования на базу ASDCOEMPTY_ETALON или PDB$SEED')
-                self.message_text = 'Клонирование на БД ASDCOEMPTY_ETALON или PDB$SEED запрещено'
-                raise Exception('Клонирование на БД ASDCOEMPTY_ETALON или PDB$SEED запрещено')
-            elif pdb_name_clone == pdb_name:
-                logger.error('Имя новой PDB и имеющейся PDB не должны совпадать')
-                self.message_text = 'Имя новой PDB и имеющейся PDB не должны совпадать'
-                raise Exception('Имя новой PDB и имеющейся PDB не должны совпадать')
+        if self.process is None:
+            if connection_string and schema_name and schema_password and pdb_name and pdb_name_clone:
+                self.pdb_progressbar.setRange(0, 0)
+                if pdb_name_clone == 'ASDCOEMPTY_ETALON' or pdb_name_clone == 'PDB$SEED':
+                    logger.error('Заблокирована попытка клонирования на базу ASDCOEMPTY_ETALON или PDB$SEED')
+                    self.message_text = 'Клонирование на БД ASDCOEMPTY_ETALON или PDB$SEED запрещено'
+                    self.msg_window()
+                elif pdb_name_clone == pdb_name:
+                    logger.error('Имя новой PDB и имеющейся PDB не должны совпадать')
+                    self.message_text = 'Имя новой PDB и имеющейся PDB не должны совпадать'
+                    self.msg_window()
+                elif pdb_name_clone == '':
+                    logger.error('Имя новой PDB не заполнено')
+                    self.message_text = 'Имя новой PDB не заполнено'
+                    self.msg_window()
+                else:
+                    self.btn_connect.setEnabled(False)
+                    self.btn_clone_pdb.setEnabled(False)
+                    self.btn_delete_pdb.setEnabled(False)
+                    self.btn_make_pdb_for_write.setEnabled(False)
+                    oracle_string = get_string_clone_pdb(connection_string, schema_name, schema_password, pdb_name, pdb_name_clone)
+                    self.execute_command(oracle_string)
+                    logger.info(f'Запущена процедура клонирования PDB. Имя новой PDB: {pdb_name_clone}')
+                    self.finish_message = 'Клонирование PDB'
             else:
-                oracle_string = get_string_clone_pdb(connection_string, schema_name, schema_password, pdb_name, pdb_name_clone)
-                result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-                logger.info(f'Проверьте в списке созданную PDB [{pdb_name_clone}]')
-                logger.info(result.strip())
-                logger.info('Перезаполнение списка PDB и таблицы')
-                self.thread_check_pdb()
-                return f'Функция {traceback.extract_stack()[-1][2]} завершена. Имя новой PDB {pdb_name_clone}'
+                logger.warning('Не заполнены все обязательные поля. Клонирование PDB прервано')
+                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                     '\t- строка подключения к CDB\n\t- имя PDB\n\t- новое имя PDB')
+                self.msg_window()
         else:
-            logger.warning('Не заполнены все обязательные поля. Клонирование PDB прервано')
-            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
-                                 '\t- строка подключения к CDB\n\t- имя PDB\n\t- новое имя PDB')
-            raise Exception('Не заполнены все обязательные поля. Клонирование PDB прервано')
+            logger.warning('Вызван новый процесс до завршения старого')
 
-    def thread_deleting_pdb(self):
+    def deleting_pdb(self):
         """
-        :return: передача функции удаления pdb в отдельном потоке
-        """
-        self.btn_clone_pdb.setEnabled(False)
-        self.btn_delete_pdb.setEnabled(False)
-        self.btn_make_pdb_for_write.setEnabled(False)
-        logger.info('Удаление PDB')
-        worker = Worker(self.fn_deleting_pdb)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
-        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
-        self.threadpool.start(worker)
-
-    def fn_deleting_pdb(self, progress_callback):
-        """
-        :param progress_callback: передача результатов из класса потока
-        :return: передает сообщение в функцию thread_print_output
+        :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
         """
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
-        if connection_string and schema_name and schema_password and pdb_name:
-            self.pdb_progressbar.setRange(0, 0)
-            if pdb_name == 'ASDCOEMPTY_ETALON' or pdb_name == 'PDB$SEED':
-                logger.error('Заблокирована попытка удаления на базу ASDCOEMPTY_ETALON или PDB$SEED')
-                self.message_text = 'Обнаружена попытка удаления ASDCOEMPTY_ETALON или PDB$SEED'
-                raise Exception('Удаление ASDCOEMPTY_ETALON или PDB$SEED запрещено')
+        self.current_index = self.get_index()
+        if self.process is None:
+            if connection_string and schema_name and schema_password and pdb_name:
+                self.pdb_progressbar.setRange(0, 0)
+                if pdb_name == 'ASDCOEMPTY_ETALON' or pdb_name == 'PDB$SEED':
+                    logger.error('Заблокирована попытка удаления на базу ASDCOEMPTY_ETALON или PDB$SEED')
+                    self.message_text = 'Обнаружена попытка удаления ASDCOEMPTY_ETALON или PDB$SEED'
+                    self.msg_window()
+                else:
+                    self.btn_connect.setEnabled(False)
+                    self.btn_clone_pdb.setEnabled(False)
+                    self.btn_delete_pdb.setEnabled(False)
+                    self.btn_make_pdb_for_write.setEnabled(False)
+                    oracle_string = get_string_delete_pdb(connection_string, schema_name, schema_password, pdb_name)
+                    self.execute_command(oracle_string)
+                    self.list_pdb.setCurrentIndex(self.current_index)
+                    logger.info(f'Запущена процедура удаления PDB {pdb_name}')
+                    self.finish_message = 'Удаление PDB'
             else:
-                oracle_string = get_string_delete_pdb(connection_string,
-                                                      schema_name,
-                                                      schema_password,
-                                                      pdb_name)
-                result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-                logger.info(f'PDB {pdb_name} удалена')
-                logger.info(result.strip())
-                logger.info('Перезаполнение списка PDB и таблицы')
-                self.thread_check_pdb()
-                self.list_pdb.setCurrentIndex(0)
-                return f'Функция {traceback.extract_stack()[-1][2]} завершена. {pdb_name} удалена'
+                logger.warning('Не заполнены все обязательные поля. Удаление PDB прервано')
+                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                     '\t- строка подключения к CDB\n\t- имя PDB')
+                self.msg_window()
         else:
-            logger.warning('Не заполнены все обязательные поля. Удаление PDB прервано')
-            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
-                                 '\t- строка подключения к CDB\n\t- имя PDB')
-            raise Exception('Не заполнены все обязательные поля. Удаление PDB прервано')
+            logger.warning('Вызван новый процесс до завршения старого')
 
-    def thread_make_pdb_writable(self):
+    def make_pdb_writable(self):
         """
-        :return: передача функции по переводу pdb из режима только для чтения в отдельном потоке
-        """
-        self.btn_clone_pdb.setEnabled(False)
-        self.btn_delete_pdb.setEnabled(False)
-        self.btn_make_pdb_for_write.setEnabled(False)
-        logger.info('Перевести PDB в режим writable')
-        worker = Worker(self.fn_writable_pdb)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
-        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
-        self.threadpool.start(worker)
-
-    def fn_writable_pdb(self, progress_callback):
-        """
-        :param progress_callback: передача результатов из класса потока
-        :return: передает сообщение в функцию thread_print_output
+        :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
         """
         connection_string = self.line_main_connect.text()
         schema_name = self.input_main_login.text()
         schema_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
-        if connection_string and schema_name and schema_password and pdb_name:
-            self.pdb_progressbar.setRange(0, 0)
-            oracle_string = get_string_make_pdb_writable(connection_string,
-                                                         schema_name,
-                                                         schema_password,
-                                                         pdb_name)
-            result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-            logger.info('PDB переведена в режим доступной для записи')
-            logger.info(result.strip())
-            return f'Функция {traceback.extract_stack()[-1][2]} завершена. ' \
-                   f'PDB {pdb_name} переведена в режим доступной для записи'
+        if self.process is None:
+            if connection_string and schema_name and schema_password and pdb_name:
+                self.pdb_progressbar.setRange(0, 0)
+                self.btn_connect.setEnabled(False)
+                self.btn_clone_pdb.setEnabled(False)
+                self.btn_delete_pdb.setEnabled(False)
+                self.btn_make_pdb_for_write.setEnabled(False)
+                oracle_string = get_string_make_pdb_writable(connection_string, schema_name, schema_password, pdb_name)
+                self.execute_command(oracle_string)
+                logger.info('Запущена процедура перевода PDB в режим доступной для записи')
+                self.finish_message = 'Перевести PDB в режим доступной для записи'
+            else:
+                logger.warning('Не заполнены все обязательные поля. Перевод PDB в режим записи прерван')
+                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                     '\t- строка подключения к CDB\n\t- имя PDB')
+                self.msg_window()
         else:
-            logger.warning('Не заполнены все обязательные поля. Перевод PDB в режим записи прерван')
-            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
-                                 '\t- строка подключения к CDB\n\t- имя PDB')
-            raise Exception('Не заполнены все обязательные поля. Перевод PDB в режим записи прерван')
+            logger.warning('Вызван новый процесс до завршения старого')
 
-    def thread_schemas_print_output(self, s):
+    def get_index(self):
         """
-        :param s: передается результат из вызванной функции потока
-        :return: слот для сигнала из потока о завершении выполнения функции
+        :return: получаем актуальный индекс для смещения в выпадающем списке после удаления PDB
         """
-        self.btn_create_schema.setEnabled(True)
-        self.btn_delete_schema.setEnabled(True)
-        self.btn_show_schemas.setEnabled(True)
-        self.btn_import_from_dumps.setEnabled(True)
-        logger.debug(s)
+        if self.list_pdb.currentIndex() == 0:
+            current_index = 0
+        elif self.list_pdb.currentIndex() > 0:
+            current_index = self.list_pdb.currentIndex() - 1
+        return current_index
 
-    def thread_schemas_complete(self):
+    def get_pdbs_schemas(self):
         """
-        :return: слот для сигнала о завершении потока
-        """
-        logger.debug('Выделенный поток завершен. Прогресс бар установлен на 100%')
-        self.schemas_progressbar.setRange(0, 1)
-
-    def thread_showing_schemas(self):
-        """
-        :return: передача функции по созданию схем в отдельном потоке
-        """
-        self.btn_create_schema.setEnabled(False)
-        self.btn_delete_schema.setEnabled(False)
-        self.btn_show_schemas.setEnabled(False)
-        self.btn_import_from_dumps.setEnabled(False)
-        logger.info(f'Запрошен список существующих схем в PDB {self.list_pdb.currentText()}')
-        worker = Worker(self.fn_show_shemas)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_schemas_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
-        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
-        self.threadpool.start(worker)
-
-    def fn_show_shemas(self, progress_callback):
-        """
-        :param progress_callback: передача результатов из класса потока
-        :return: передает сообщение в функцию thread_print_output
+        :return:
         """
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
         bd_name = self.list_pdb.currentText().upper()
-        if connection_string and sysdba_name and sysdba_password and bd_name:
-            self.schemas_progressbar.setRange(0, 0)
-            oracle_string = get_string_show_oracle_users(sysdba_name, sysdba_password, connection_string, bd_name)
-            result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-            logger.info(result.strip())
-            self.input_schemas_area.append(result.strip())
-            return f'Функция {traceback.extract_stack()[-1][2]} завершена'
-        else:
-            logger.warning('Не заполнены все обязательные поля. Невозможно отобразить существующие схемы')
-            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
-                                 '\t- строка подключения к CDB\n\t- имя PDB')
-            raise Exception('Не заполнены все обязательные поля. Невозможно отобразить существующие схемы')
-
-    def thread_creating_schemas(self):
-        """
-        :return: передача функции по созданию схем в отдельном потоке
-        """
-        self.btn_create_schema.setEnabled(False)
-        self.btn_delete_schema.setEnabled(False)
-        self.btn_show_schemas.setEnabled(False)
-        self.btn_import_from_dumps.setEnabled(False)
-        logger.info('Начато создание схем')
-        worker = Worker(self.fn_creating_schemas)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_schemas_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
-        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
-        self.threadpool.start(worker)
-
-    def fn_creating_schemas(self, progress_callback):
-        """
-        :param progress_callback: передача результатов из класса потока
-        :return: передает сообщение в функцию thread_print_output
-        """
-        connection_string = self.line_main_connect.text()
-        sysdba_name = self.input_main_login.text()
-        sysdba_password = self.input_main_password.text()
-        bd_name = self.list_pdb.currentText().upper()
-        checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
-        if connection_string and sysdba_name and sysdba_password and bd_name:
-            self.schemas_progressbar.setRange(0, 0)
-            for schema_name in checked_schemas:
-                name = eval('self.input_' + schema_name + '_name.text()')
-                identified = eval('self.input_' + schema_name + '_pass.text()')
-                result_creating_schemas = self.creating_schemas(connection_string, sysdba_name, sysdba_password,
-                                                                name, identified, bd_name)
-                self.input_schemas_area.append(result_creating_schemas.strip())
-                logger.info(f'Схема {name} создана')
-                result_for_privileges = self.grant_privilege_schemas(connection_string, sysdba_name, sysdba_password,
-                                                                     name, bd_name)
-                self.input_schemas_area.append(result_for_privileges.strip())
-                logger.info(f'Схеме {name} выданы привилегии')
-                return f'Функция {traceback.extract_stack()[-1][2]} завершена'
-        else:
-            logger.warning('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
-            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
-                                 '\t- строка подключения к CDB\n\t- имя PDB')
-            raise Exception('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
-
-    def creating_schemas(self, connection_string, sysdba_name, sysdba_password, name, identified, bd_name):
-        """
-        :param connection_string: строка подключения к pdb
-        :param sysdba_name: логин пользователя SYSDBA
-        :param sysdba_password: пароль пользователя SYSDBA
-        :param name: имя новой схемы
-        :param identified: пароль от схемы
-        :param bd_name: имя pdb, в которой будет создана схема
-        :return: созданные схемы
-        """
-        oracle_string = get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, name,
-                                                        identified, bd_name)
-        return runnings_sqlplus_scripts_with_subprocess(oracle_string)
-
-    def grant_privilege_schemas(self, connection_string, sysdba_name, sysdba_password, schema_name, bd_name):
-        """
-        :param connection_string: строка подключения к pdb
-        :param sysdba_name: логин пользователя SYSDBA
-        :param sysdba_password: пароль пользователя SYSDBA
-        :param schema_name: имя новой схемы
-        :param bd_name: имя pdb, в которой будет создана схема
-        :return: выданы привилегии для схем
-        """
-        oracle_string = get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name,
-                                                          bd_name)
-        return runnings_sqlplus_scripts_with_subprocess(oracle_string)
-
-    def thread_import_from_dumps(self):
-        """
-        :return: передача функции по созданию схем в отдельном потоке
-        """
-        self.btn_create_schema.setEnabled(False)
-        self.btn_delete_schema.setEnabled(False)
-        self.btn_show_schemas.setEnabled(False)
-        self.btn_import_from_dumps.setEnabled(False)
-        logger.info('Начат импорт из дампа')
-        worker = Worker(self.fn_import_schemas)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_schemas_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
-        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
-        self.threadpool.start(worker)
-
-    def fn_import_schemas(self, progress_callback):
-        """
-        :param progress_callback: передача результатов из класса потока
-        :return: передает сообщение в функцию thread_print_output
-        """
-        connection_string = self.line_main_connect.text()
-        sysdba_name = self.input_main_login.text()
-        sysdba_password = self.input_main_password.text()
-        bd_name = self.list_pdb.currentText().upper()
-        checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
-        if connection_string and sysdba_name and sysdba_password and bd_name:
-            self.schemas_progressbar.setRange(0, 0)
-            if len(checked_schemas) == 7:
-                name = eval('self.input_' + checked_schemas[0] + '_name.text()')
-                identified = eval('self.input_' + checked_schemas[0] + '_pass.text()')
-                dump_for_schema_path = eval('self.path_' + checked_schemas[0] + '.text()')
-                dump_name = eval('self.pdb_' + checked_schemas[0] + '_name.text()')
-                connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
-                oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, bd_name, name,
-                                                                identified, dump_name, dump_for_schema_path)
-                result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+        if self.process is None:
+            if connection_string and sysdba_name and sysdba_password and bd_name:
+                self.schemas_progressbar.setRange(0, 0)
+                print('Начато выполнение процесса')
+                self.process = QProcess()
+                self.process.readyReadStandardOutput.connect(self.handle_stdout)
+                self.process.readyReadStandardError.connect(self.handle_stderr)
+                self.process.stateChanged.connect(self.handle_state)
+                self.process.finished.connect(self.process_finished)
+                oracle_string = get_string_show_oracle_users(connection_string, sysdba_name, sysdba_password, bd_name)
+                self.process.startCommand(oracle_string)
+                self.process.waitForBytesWritten()
+                result = self.result
+                logger.info(result.strip())
                 self.input_schemas_area.append(result.strip())
-            elif len(checked_schemas) > 7:
+                return f'Функция {traceback.extract_stack()[-1][2]} завершена'
+            else:
+                logger.warning('Не заполнены все обязательные поля. Невозможно отобразить существующие схемы')
+                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                     '\t- строка подключения к CDB\n\t- имя PDB')
+                self.msg_window()
+        else:
+            logger.warning('Вызван новый процесс до завршения старого')
+
+    def creating_schemas(self):
+        """
+        :return:
+        """
+        connection_string = self.line_main_connect.text()
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
+        bd_name = self.list_pdb.currentText().upper()
+        checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
+        if self.process is None:
+            if connection_string and sysdba_name and sysdba_password and bd_name:
+                self.schemas_progressbar.setRange(0, 0)
+                print('Начато выполнение процесса')
+                self.process = QProcess()
+                self.process.readyReadStandardOutput.connect(self.handle_stdout)
+                self.process.readyReadStandardError.connect(self.handle_stderr)
+                self.process.stateChanged.connect(self.handle_state)
+                self.process.finished.connect(self.process_finished)
                 for schema_name in checked_schemas:
+                    # проверить, что все отрабатывает нормально
+                    # иначе нужно будет или отдельными функциями прописать
+                    # или смотреть как не завершать автоматически процесс
                     name = eval('self.input_' + schema_name + '_name.text()')
                     identified = eval('self.input_' + schema_name + '_pass.text()')
-                    dump_for_schema_path = eval('self.path_' + schema_name + '.text()')
-                    dump_name = eval('self.pdb_' + schema_name + '_name.text()')
-                    self.input_schemas_area.append(f'Начато выполнение импорта из дампа для схемы {name}')
-                    logger.info(f'Начато выполнение импорта из дампа для схемы {name}')
-                    connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
-                    oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, bd_name, name,
-                                                                    identified, dump_name, dump_for_schema_path)
-                    result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-                    self.input_schemas_area.append(f'Импорт из дампа для схемы {name} завершен. Результаты выполнения:\n')
-                    self.input_schemas_area.append(result.strip())
-                    logger.info(f'Импорт из дампа для схемы {name} завершен')
-                    logger.info(f'Включение опций и перекомпиляция view и функций для схемы {name}')
-                    self.enabled_schemes_options(connection_string, bd_name, name, identified)
-                    logger.info(f'Выполнение перекомпиляции view и функций для схемы {name} зевершено')
+                    oracle_string = get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, name, identified, bd_name)
+                    self.process.startCommand(oracle_string)
+                    self.process.waitForBytesWritten()
+                    result_creating_schemas = self.result
+                    self.input_schemas_area.append(result_creating_schemas.strip())
+                    logger.info(f'Схема {name} создана')
+                    oracle_string = get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name, bd_name)
+                    self.process.startCommand(oracle_string)
+                    self.process.waitForBytesWritten()
+                    result_for_privileges = self.result
+                    self.input_schemas_area.append(result_for_privileges.strip())
+                    logger.info(f'Схеме {name} выданы привилегии')
                     return f'Функция {traceback.extract_stack()[-1][2]} завершена'
             else:
-                logger.warning('Не найдены отмеченные чекбоксами схемы')
-                self.message_text = 'Не найдены отмеченные чекбоксами схемы'
-                raise Exception('Не найдены отмеченные чекбоксами схемы')
+                logger.warning('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
+                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                     '\t- строка подключения к CDB\n\t- имя PDB')
         else:
-            logger.warning('Не заполнены все обязательные поля. Невозможно импортировать из дампа')
-            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
-                                 '\t- строка подключения к CDB\n\t- имя PDB')
-            raise Exception('Не заполнены все обязательные поля. Невозможно импортировать из дампа')
+            logger.warning('Вызван новый процесс до завршения старого')
 
-    def enabled_schemes_options(self, connection_string, pdb_name, schema_name, schema_password):
-        connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
-        oracle_string = get_string_enabled_oracle_asdco_options(connection_string_without_orcl, pdb_name,
-                                                                schema_name, schema_password)
-        return runnings_sqlplus_scripts_with_subprocess(oracle_string)
+    def import_from_dumps_to_schemas(self):
+        """
+        :return:
+        """
+        connection_string = self.line_main_connect.text()
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
+        bd_name = self.list_pdb.currentText().upper()
+        checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
+        if self.process is None:
+            if connection_string and sysdba_name and sysdba_password and bd_name:
+                self.schemas_progressbar.setRange(0, 0)
+                print('Начато выполнение процесса')
+                self.process = QProcess()
+                self.process.readyReadStandardOutput.connect(self.handle_stdout)
+                self.process.readyReadStandardError.connect(self.handle_stderr)
+                self.process.stateChanged.connect(self.handle_state)
+                self.process.finished.connect(self.process_finished)
+                if len(checked_schemas) == 7:
+                    name = eval('self.input_' + checked_schemas[0] + '_name.text()')
+                    identified = eval('self.input_' + checked_schemas[0] + '_pass.text()')
+                    dump_for_schema_path = eval('self.path_' + checked_schemas[0] + '.text()')
+                    dump_name = eval('self.pdb_' + checked_schemas[0] + '_name.text()')
+                    connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
+                    oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, bd_name, name, identified, dump_name, dump_for_schema_path)
+                    self.process.startCommand(oracle_string)
+                    self.process.waitForBytesWritten()
+                    result = self.result
+                    self.input_schemas_area.append(result.strip())
+                elif len(checked_schemas) > 7:
+                    for schema_name in checked_schemas:
+                        name = eval('self.input_' + schema_name + '_name.text()')
+                        identified = eval('self.input_' + schema_name + '_pass.text()')
+                        dump_for_schema_path = eval('self.path_' + schema_name + '.text()')
+                        dump_name = eval('self.pdb_' + schema_name + '_name.text()')
+                        self.input_schemas_area.append(f'Начато выполнение импорта из дампа для схемы {name}')
+                        logger.info(f'Начато выполнение импорта из дампа для схемы {name}')
+                        connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
+                        oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, bd_name, name, identified, dump_name, dump_for_schema_path)
+                        self.process.startCommand(oracle_string)
+                        self.process.waitForBytesWritten()
+                        result = self.result
+                        self.input_schemas_area.append(f'Импорт из дампа для схемы {name} завершен\n')
+                        self.input_schemas_area.append(result.strip())
+                        logger.info(f'Импорт из дампа для схемы {name} завершен')
+                        logger.info(f'Включение опций и перекомпиляция view и функций для схемы {name}')
+                        enabled_schemes_options_string = get_string_enabled_oracle_asdco_options(connection_string_without_orcl, bd_name, name, identified)
+                        self.process.startCommand(enabled_schemes_options_string)
+                        self.process.waitForBytesWritten()
+                        result = self.result
+                        self.input_schemas_area.append(f'Перекомпиляция view и функций для схемы {name} зевершено\n')
+                        self.input_schemas_area.append(result.strip())
+                        logger.info(f'Выполнение перекомпиляции view и функций для схемы {name} зевершено')
+                        return f'Функция {traceback.extract_stack()[-1][2]} завершена'
+                else:
+                    logger.warning('Не найдены отмеченные чекбоксами схемы')
+                    self.message_text = 'Не найдены отмеченные чекбоксами схемы'
+            else:
+                logger.warning('Не заполнены все обязательные поля. Невозможно импортировать из дампа')
+                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                     '\t- строка подключения к CDB\n\t- имя PDB')
+        else:
+            logger.warning('Вызван новый процесс до завршения старого')
 
-    def thread_deleting_schemas(self):
+    def deleting_schemas(self):
         """
-        :return: передача функции по созданию схем в отдельном потоке
-        """
-        self.btn_create_schema.setEnabled(False)
-        self.btn_delete_schema.setEnabled(False)
-        self.btn_show_schemas.setEnabled(False)
-        self.btn_import_from_dumps.setEnabled(False)
-        logger.info('Начато удаление схем')
-        worker = Worker(self.fn_deleting_schemas)  # функция, которая выполняется в потоке
-        worker.signals.result.connect(self.thread_schemas_print_output)  # сообщение после завершения выполнения задачи
-        worker.signals.finish.connect(self.thread_schemas_complete)  # сообщение после завершения потока
-        worker.signals.error.connect(self.msg_window)  # сообщение, если была вызвана ошибка
-        self.threadpool.start(worker)
-
-    def fn_deleting_schemas(self, progress_callback):
-        """
-        :param progress_callback: передача результатов из класса потока
-        :return: удаление выделенных схем
+        :return:
         """
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
@@ -581,30 +553,39 @@ class Window(QMainWindow):
         checked_schemas = ', '.join([key for key in self.schemas.keys() if self.schemas[key] == 1])
         self.input_schemas_area.append(f'Удаление схем: {checked_schemas}')
         logger.info(f'Начато удаление схем {checked_schemas}')
-        if connection_string and sysdba_name and sysdba_password:
-            self.schemas_progressbar.setRange(0, 0)
-            if len(checked_schemas) == 7:
-                connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
-                oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name,
-                                                                sysdba_password, bd_name, checked_schemas)
-                result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
-                self.input_schemas_area.append(result.strip())
-            elif len(checked_schemas) > 7:
-                for schema_name in checked_schemas:
+        if self.process is None:
+            if connection_string and sysdba_name and sysdba_password:
+                self.schemas_progressbar.setRange(0, 0)
+                print('Начато выполнение процесса')
+                self.process = QProcess()
+                self.process.readyReadStandardOutput.connect(self.handle_stdout)
+                self.process.readyReadStandardError.connect(self.handle_stderr)
+                self.process.stateChanged.connect(self.handle_state)
+                self.process.finished.connect(self.process_finished)
+                if len(checked_schemas) == 7:
                     connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
-                    oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name,
-                                                                    sysdba_password, bd_name, schema_name)
-                    result = runnings_sqlplus_scripts_with_subprocess(oracle_string)
+                    oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name, sysdba_password, bd_name, checked_schemas)
+                    self.process.startCommand(oracle_string)
+                    self.process.waitForBytesWritten()
+                    result = self.result
                     self.input_schemas_area.append(result.strip())
+                elif len(checked_schemas) > 7:
+                    for schema_name in checked_schemas:
+                        connection_string_without_orcl = connection_string[:connection_string.rfind('/')+1]
+                        oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name, sysdba_password, bd_name, schema_name)
+                        self.process.startCommand(oracle_string)
+                        self.process.waitForBytesWritten()
+                        result = self.result
+                        self.input_schemas_area.append(result.strip())
+                else:
+                    logger.warning('Не найдены отмеченные чекбоксами схемы')
+                    self.message_text = 'Проверьте отмечены ли схемы'
             else:
-                logger.warning('Не найдены отмеченные чекбоксами схемы')
-                self.message_text = 'Проверьте отмечены ли схемы'
-                raise Exception('Не найдены отмеченные чекбоксами схемы')
+                logger.warning('Не заполнены все обязательные поля. Невозможно удалить схемы')
+                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                     '\t- строка подключения к CDB\n\t- имя PDB')
         else:
-            logger.warning('Не заполнены все обязательные поля. Невозможно удалить схемы')
-            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA пользователя\n'
-                                 '\t- строка подключения к CDB\n\t- имя PDB')
-            raise Exception('Не заполнены все обязательные поля. Невозможно удалить схемы')
+            logger.warning('Вызван новый процесс до завршения старого')
 
     def fn_checkbox_clicked_for_schemas(self, checked):
         """
@@ -634,8 +615,7 @@ class Window(QMainWindow):
         """
         self.settings.setValue('login', self.input_main_login.text())
         self.settings.setValue('connectline', self.line_main_connect.text())
-        if self.input_main_password.text() == '123devop' or self.input_main_password.text() == 'pay11d' or self.input_main_password.text() == 'pay12d':
-            self.settings.setValue('password', hashlib.md5(self.input_main_password.text().encode()).hexdigest())
+        self.settings.setValue('password', self.input_main_password.text())
         self.settings.setValue('PDB_name', self.list_pdb.currentText())
         self.settings.beginGroup('GUI')
         self.settings.setValue('width', self.geometry().width())
@@ -676,6 +656,7 @@ class Window(QMainWindow):
         self.input_main_login.setText(self.settings.value('login'))
         self.line_main_connect.setText(self.settings.value('connectline'))
         self.list_pdb.setCurrentText(self.settings.value('PDB_name'))
+        self.input_main_password.setText(self.settings.value('password'))
         self.input_schema1_name.setText(self.settings.value('SCHEMAS/credit1_schemaname'))
         self.input_schema2_name.setText(self.settings.value('SCHEMAS/deposit1_schemaname'))
         self.input_schema3_name.setText(self.settings.value('SCHEMAS/credit1_ar_schemaname'))
@@ -705,12 +686,6 @@ class Window(QMainWindow):
             logger.info('Настройки размеров окна загружены.')
         except TypeError:
             logger.info('Установлены размеры окна по умолчанию')
-        if self.settings.value('password') == MD5_HEX_DEVOP:
-            self.input_main_password.setText('123devop')
-        elif self.settings.value('password') == MD5_HEX_P11:
-            self.input_main_password.setText('pay11d')
-        elif self.settings.value('password') == MD5_HEX_P12:
-            self.input_main_password.setText('pay12d')
         logger.info('Файл с пользовательскими настройками проинициализирован')
 
     def header_layout(self):
@@ -732,7 +707,7 @@ class Window(QMainWindow):
         self.line_for_combobox = QLineEdit()
         self.list_pdb.setLineEdit(self.line_for_combobox)
         self.btn_current_pdb = QPushButton('Показать существующие pdb')
-        self.btn_current_pdb.clicked.connect(self.thread_check_pdb)
+        self.btn_current_pdb.clicked.connect(self.get_pdb_name_from_bd)
         self.top_grid_layout.addWidget(self.label_main_login, 0, 0)
         self.top_grid_layout.addWidget(self.input_main_login, 0, 1)
         self.top_grid_layout.addWidget(self.input_main_password, 0, 2)
@@ -752,17 +727,17 @@ class Window(QMainWindow):
         self.input_newpdb.setPlaceholderText('Новое имя PDB')
         self.input_newpdb.setToolTip('Введите в данное поле новое имя PDB')
         self.btn_connect = QPushButton('Проверить подключение к PDB')
-        self.btn_connect.clicked.connect(self.thread_check_connection)
+        self.btn_connect.clicked.connect(self.check_connect_to_pdb)
         self.btn_connect.setStyleSheet('width: 300')
         self.btn_clone_pdb = QPushButton('Клонировать PDB')
         self.btn_clone_pdb.setEnabled(False)
-        self.btn_clone_pdb.clicked.connect(self.thread_cloning_pdb)
+        self.btn_clone_pdb.clicked.connect(self.cloning_pdb)
         self.btn_clone_pdb.setStyleSheet('width: 300')
         self.btn_delete_pdb = QPushButton('Удалить PDB')
-        self.btn_delete_pdb.clicked.connect(self.thread_deleting_pdb)
+        self.btn_delete_pdb.clicked.connect(self.deleting_pdb)
         self.btn_delete_pdb.setEnabled(False)
         self.btn_make_pdb_for_write = QPushButton('Сделать PDB доступной для записи')
-        self.btn_make_pdb_for_write.clicked.connect(self.thread_make_pdb_writable)
+        self.btn_make_pdb_for_write.clicked.connect(self.make_pdb_writable)
         self.btn_make_pdb_for_write.setEnabled(False)
         self.pdb_progressbar = QProgressBar()
         self.pdb_progressbar.setStyleSheet('text-align: center; min-height: 20px; max-height: 20px;')
@@ -834,13 +809,13 @@ class Window(QMainWindow):
         self.pdb_schema5_name = QLineEdit()
         self.pdb_schema5_name.setPlaceholderText('Имя схемы в дампе')
         self.btn_create_schema = QPushButton('Создать схему')
-        self.btn_create_schema.clicked.connect(self.thread_creating_schemas)
+        self.btn_create_schema.clicked.connect(self.creating_schemas)
         self.btn_delete_schema = QPushButton('Удалить схему')
-        self.btn_delete_schema.clicked.connect(self.thread_deleting_schemas)
+        self.btn_delete_schema.clicked.connect(self.deleting_schemas)
         self.btn_show_schemas = QPushButton('Показать существующие схемы')
-        self.btn_show_schemas.clicked.connect(self.thread_showing_schemas)
+        self.btn_show_schemas.clicked.connect(self.get_pdbs_schemas)
         self.btn_import_from_dumps = QPushButton('Импорт из дампа')
-        self.btn_import_from_dumps.clicked.connect(self.thread_import_from_dumps)
+        self.btn_import_from_dumps.clicked.connect(self.import_from_dumps_to_schemas)
         self.path_schema1 = QLineEdit()
         self.path_schema1.setPlaceholderText('Введите путь или нажмите на кнопку')
         self.btn_path_schema1 = self.path_schema1.addAction(QIcon(self.btn_icon),
