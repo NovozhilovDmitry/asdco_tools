@@ -38,6 +38,7 @@ def create_file_for_pdb(filename):
     file_name = directory_name.joinpath(filename)
     with open(file_name, 'w'):
         pass
+    logger.info(f'Создан файл для получения информации из потока QProcess {filename}')
     return file_name
 
 
@@ -77,7 +78,6 @@ exit;
     """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
-    logger.info(f'Подключение к {connection_string} под пользователем {sysdba_name}')
     return cmd
 
 
@@ -120,7 +120,6 @@ exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
-    logger.info(f'Клонирование базы данных начато. Имя клонируемой PDB {pdb_name}, имя новой PDB {pdb_name_cloned}')
     return cmd
 
 
@@ -139,7 +138,6 @@ exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
-    logger.info(f'Сделать клонируемую PDB {pdb_name} доступной для записи')
     return cmd
 
 
@@ -158,7 +156,6 @@ exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
-    logger.info(f'Удаление PDB {pdb_name}')
     return cmd
 
 
@@ -169,7 +166,7 @@ def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_pa
     :param sysdba_password: пароль пользователя SYSDBA
     :return: проверяется возможность подключения к pdb
     """
-    script = f"""set heading off 
+    script = f"""set heading off
 select 'CONNECTION SUCCESS' from dual;
 exit;"""
     script_file = create_script_file(script)
@@ -187,12 +184,10 @@ def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_passw
     :param pdb_name: имя pdb, в которой будет создана схема
     :return: создана схема
     """
-    script = f"""alter session set container={pdb_name};
-create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
+    script = f"""create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
 exit;"""
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
-    logger.info(f'Создание схемы {schema_name}')
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
     return cmd
 
 
@@ -205,8 +200,7 @@ def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_pas
     :param pdb_name: имя pdb, в которой создана схема
     :return: выданы права для схемы
     """
-    script = f"""alter session set container={pdb_name};
-grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
+    script = f"""grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
 grant FLASHBACK ANY TABLE,UNLIMITED TABLESPACE, CREATE ANY DIRECTORY, ALTER SESSION, SELECT ANY DICTIONARY to {schema_name};
 grant SELECT on V_$SESSION to {schema_name};
 grant SELECT on V_$LOCKED_OBJECT to {schema_name};
@@ -230,8 +224,7 @@ grant read,write on directory {DATA_PUMP_DIR} to {schema_name};
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
-    logger.info(f'Привилегии для {schema_name} предоставлены')
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
     return cmd
 
 
@@ -243,8 +236,7 @@ def get_string_show_oracle_users(connection_string, sysdba_name, sysdba_password
     :param pdb_name: имя pdb, в которой создана схема
     :return: показывает созданные схемы
     """
-    script = f"""alter session set container={pdb_name};
-column USERNAME format A40;
+    script = f"""column USERNAME format A40;
 alter session set NLS_DATE_FORMAT = 'YYYY.MM.DD HH24:MI:SS';
 set heading off
 set linesize 60;
@@ -252,8 +244,7 @@ select USERNAME, CREATED from dba_users where COMMON='NO';
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
-    logger.info(f'Показать созданные схемы')
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} @{script_file}'
     return cmd
 
 
@@ -267,9 +258,7 @@ def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, sc
     :param schema_dump_file: путь к дампу
     :return: импорт схем из дампа
     """
-    cmd = f"""imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000 STATISTICS=RECALCULATE'
-exit;
-"""
+    cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000"
     logger.info(f'Вызов оракловского приложения для импортирования БД (imp.exe)')
     return cmd
 
@@ -358,7 +347,6 @@ exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {schema_name}/{schema_password}@{connection_string}/{pdb_name} @{script_file}'
-    logger.info(f'Обновление триггеров, функций и процедур')
     return cmd
 
 
@@ -386,8 +374,9 @@ def get_last_login_to_common_schemas(connection_string, sysdba_name, sysdba_pass
     :param pdb_name: имя pdb, к которой подключаемся
     :return: показывает последний вход пользователей
     """
-    script = f"""alter session set container={pdb_name};
-set heading off
+
+    script = f"""set heading off
+set feedback off
 select USERNAME || '; ' || to_char(LAST_LOGIN, 'DD.MM.YYYY HH24:MI:SS') from dba_users where COMMON='NO' and LAST_LOGIN is not null;
 exit;"""
     script_file = create_script_file(script)
