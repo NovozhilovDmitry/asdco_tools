@@ -1,12 +1,13 @@
 import sys
 import re
+import traceback
 from datetime import datetime, date
 from myLogging import logger
 from PyQt6.QtGui import QPixmap, QIcon
-from PyQt6.QtCore import QSettings, QProcess
+from PyQt6.QtCore import QSettings, QProcess, QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QLabel, QGridLayout, QApplication, QPushButton, QLineEdit, QTextEdit,
                              QCheckBox, QComboBox, QVBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QProgressBar, QFileDialog, QMessageBox)
+                             QProgressBar, QFileDialog, QMessageBox, QStatusBar)
 from functions import (get_string_show_pdbs,
                        delete_temp_directory,
                        get_string_check_oracle_connection,
@@ -22,12 +23,41 @@ from functions import (get_string_show_pdbs,
                        get_string_import_oracle_schema,
                        get_string_delete_oracle_scheme,
                        create_file_for_pdb,
-                       get_last_login_to_common_schemas)
+                       get_last_login_to_common_schemas,
+                       get_total_space_and_used_space_from_zabbix)
 
 
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 600
 TITLE = 'ASDCO TOOLS'
+
+
+class WorkerSignals(QObject):
+    finish = pyqtSignal()
+    error = pyqtSignal(tuple)
+    result = pyqtSignal(object)
+
+
+class Worker(QRunnable):
+    def __init__(self, fn, *args, **kwargs):
+        super(Worker, self).__init__()
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+        self.signals = WorkerSignals()
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            result = self.fn(*self.args, **self.kwargs)
+        except:
+            traceback.print_exc()
+            exctype, value = sys.exc_info()[:2]
+            self.signals.error.emit(exctype, value, traceback.format_exc())
+        else:
+            self.signals.result.emit(result)
+        finally:
+            self.signals.finish.emit()
 
 
 class Window(QMainWindow):
@@ -37,6 +67,8 @@ class Window(QMainWindow):
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)  # минимальный размер окна
         self.btn_icon = QPixmap("others/folder.png")  # иконка для приложения
         self.layout = QWidget()  # наследуемся для макета
+        self.stbar = QStatusBar()  #
+        self.threadpool = QThreadPool()  #
         self.main_layout = QVBoxLayout()  # вертикальный макет
         self.top_grid_layout = QGridLayout()  # макет с сеткой
         self.tabs = QTabWidget()  # наследуемся для вкладок
@@ -50,9 +82,11 @@ class Window(QMainWindow):
         self.tab_schemas.setLayout(self.tab_schemas.layout)
         self.main_layout.addLayout(self.top_grid_layout)
         self.main_layout.addWidget(self.tabs)
+        self.main_layout.addWidget(self.stbar)
         self.layout.setLayout(self.main_layout)
         self.setCentralWidget(self.layout)
         self.initialization_settings()  # вызов функции с инициализацией сохраненных значений
+        # self._get_info_from_server()  # запустить в отдельном потоке получение инфы по api
         self.process = None  # это для QProcess
         self.message_text = ''  # используется для передачи ошибки в окно msg_window
         self.finish_message = ''  # передается сообщение в лог после клонирования, удаления и функции writeble
@@ -71,6 +105,29 @@ class Window(QMainWindow):
         dlg.setStandardButtons(QMessageBox.StandardButton.Ok)
         dlg.setIcon(QMessageBox.Icon.Warning)
         dlg.exec()
+
+    def _print_complete(self):
+        """
+        :return: слот для сигнала о завершении потока
+        """
+        logger.info('Информация о пространстве на сервере oracle получены и записана в статусную строку')
+        self.stbar.showMessage(self.status_string)
+
+    def _get_info_from_server(self):
+        """
+        :return: передача функции по запросу информации по api в отдельном потоке
+        """
+        logger.info('Запрошена информация о состоянии сервера oracle')
+        worker = Worker(self._get_space)
+        worker.signals.finish.connect(self._print_complete)
+        self.threadpool.start(worker)
+
+    def _get_space(self):
+        """
+        :return: получение данных и формирование сообщения в статусную строку
+        """
+        data = get_total_space_and_used_space_from_zabbix()
+        self.status_string - f"""Под базы данных oracle выделено {round(data['total_space'] /1024 /1024 /1024)} Гб. Занято: {round(data['used_space'] /1024 /1024 /1024)} Гб, свободно: {round((data['total_space'] - data['used_space']) /1024 /1024 /1024)} Гб"""
 
     def handle_stderr(self):
         """
@@ -227,7 +284,7 @@ class Window(QMainWindow):
                 self.process.finished.connect(self.process_finished_connect)  # сигнал после завершения всех задач
                 self.process.startCommand(oracle_string)
                 logger.info('Запущена процедура проверки подключения к PDB')
-                self.finish_message = 'Проверки подключения к PDB'
+                self.finish_message = 'Проверка подключения к PDB'
             else:
                 logger.warning('Не заполнены все обязательные поля. Проверка подключения прервана')
                 self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
@@ -471,7 +528,7 @@ class Window(QMainWindow):
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.info('Функция "Создание схемы" успешно завершена')
-            self.grant_oracle_privilege(self.shema_name_for_grant)
+            self.grant_oracle_privilege(self.shema_name_for_grant)  # начиная отсюда нужно выделять отдельный класс
 
     def handle_schemas_stderr(self):
         """

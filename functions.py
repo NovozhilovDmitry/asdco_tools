@@ -2,6 +2,7 @@ import time
 import sys
 import shutil
 import pathlib
+import requests
 from myLogging import logger
 
 
@@ -342,8 +343,8 @@ end if;
 end;
 end loop;
 end;
-exit;
 /
+exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {schema_name}/{schema_password}@{connection_string}/{pdb_name} @{script_file}'
@@ -382,6 +383,27 @@ exit;"""
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
     return cmd
+
+
+def get_total_space_and_used_space_from_zabbix():
+    """
+    :return: получение информации об общем размере сервера oracle и количество свободного пространства
+    """
+    header = {'Content-Type': 'application/json'}
+    data = requests.post('http://192.268.65.170/api_jsonrpc.php', headers=header,
+                         json={'jsonrpc': '2.0', 'method': 'history.get',
+                               'params': {'history': 3, 'hostids': ['11185'], 'itemids': ['108285', '108288'],
+                                          'output': 'extend', 'limit': 2, 'sortfield': 'clock', 'sortorder': 'DESC'},
+                               'auth': 'fe57381c8834819d9ca7f99f644c8dc30b3e9ec6956bdb2c57efa9af29127032', 'id': 1})
+    data_dict = data.json()
+    line_for_print = data_dict['result']
+    temp_dict = {'used_space': 0, 'total_space': 0}
+    for i in line_for_print:
+        if i['itemid'] == '108288':
+            temp_dict['used_space'] = int(i['value'])
+        elif i['itemid'] == '108285':
+            temp_dict['total_space'] = int(i['value'])
+    return temp_dict
 
 
 if __name__ == '__main__':
