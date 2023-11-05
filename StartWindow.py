@@ -1,10 +1,12 @@
 import sys
 import re
 import traceback
+import uuid
 from datetime import datetime, date
 from myLogging import logger
 from PyQt6.QtGui import QPixmap, QIcon
-from PyQt6.QtCore import QSettings, QProcess, QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import (QSettings, QProcess, QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot,
+                          QAbstractListModel, Qt)
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QLabel, QGridLayout, QApplication, QPushButton, QLineEdit, QTextEdit,
                              QCheckBox, QComboBox, QVBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
                              QProgressBar, QFileDialog, QMessageBox, QStatusBar)
@@ -30,6 +32,109 @@ from functions import (get_string_show_pdbs,
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 600
 TITLE = 'ASDCO TOOLS'
+DEFAULT_STATE = {
+    "progress": 0,
+    "status": QProcess.ProcessState.Starting,
+}
+
+
+class JobManager(QAbstractListModel):
+    """
+    Менеджер обработки активных заданий, потока stdout, stderr
+    Также функционирует как Qt модель данных для отображения
+    прогресса каждого процесса
+    """
+
+    _jobs = {}
+    _state = {}
+    _parsers = {}
+    status = pyqtSignal(str)
+    result = pyqtSignal(str, object)
+    progress = pyqtSignal(str, int)
+    finish = pyqtSignal(int, str)
+
+    def __init__(self):
+        super().__init__()
+        self.progress.connect(self.handle_progress)  # Внутренний сигнал, который запускает обновление прогресса
+
+    def execute(self, command, arguments, parsers=None):
+        """
+        Выполнить команду запустив новый процесс
+        """
+        job_id = uuid.uuid4().hex
+        # по умолчанию сигналы не имеют доступ к информации об отправленном процессе
+        # используем конструктов для отправки сигналов с job_id
+
+        def fwd_signal(target):
+            return lambda *args: target(job_id, *args)
+
+        self._parsers[job_id] = parsers or []
+        self._state[job_id] = DEFAULT_STATE.copy()  # установить по умолчанию статус - ожидание и прогресс 0
+        p = QProcess()
+        p.readyReadStandardOutput.connect(fwd_signal(self.handle_output))
+        p.readyReadStandardError.connect(fwd_signal(self.handle_output))
+        p.stateChanged.connect(fwd_signal(self.handle_state))
+        p.finished.connect(fwd_signal(self.done))
+        self._jobs[job_id] = p
+        p.start(command, arguments)
+        self.layoutChanged.emit()
+
+    def handle_output(self, job_id):
+        p = self._jobs[job_id]
+        stderr = bytes(p.readAllStandardError()).decode("utf8")
+        stdout = bytes(p.readAllStandardOutput()).decode("utf8")
+        output = stderr + stdout
+        parsers = self._parsers.get(job_id)
+        for parser, signal_name in parsers:
+            result = parser(output)
+            data = result.strip()
+            find_ora_error = re.compile("ORA-\d{1,5}:")
+            searching_in_stdout = find_ora_error.search(data)
+            try:
+                start = data.find(searching_in_stdout.group(0))
+                message_error = data.strip()[start:]
+                self.finish.emit(999, message_error)
+                self.cleanup()
+                # QProcess.terminate()
+            except:
+                signal = getattr(self, signal_name)
+                signal.emit(job_id, result)
+                self.finish.emit(0, '')
+
+    def handle_progress(self, job_id, progress):
+        self._state[job_id]["progress"] = progress
+        self.layoutChanged.emit()
+
+    def handle_state(self, job_id, state):
+        self._state[job_id]["status"] = state
+        self.layoutChanged.emit()
+
+    def done(self, job_id, exit_code, exit_status):
+        """
+        задача завершена и ее надо удалить из из слоавря активных задач
+        """
+        # self.finish.emit(exit_code, str(exit_status))
+        del self._jobs[job_id]
+        self.layoutChanged.emit()
+
+    def cleanup(self):
+        """
+        удалить все завершенные или сломавшиеся воркеры из словаря worker_state
+        """
+        for job_id, s in list(self._state.items()):
+            if s["status"] == QProcess.ProcessState.NotRunning:
+                del self._state[job_id]
+        self.layoutChanged.emit()
+
+    # Model interface
+    def data(self, index, role):
+        if role == Qt.ItemDataRole.DisplayRole:
+            job_ids = list(self._state.keys())
+            job_id = job_ids[index.row()]
+            return job_id, self._state[job_id]
+
+    def rowCount(self, index):
+        return len(self._state)
 
 
 class WorkerSignals(QObject):
@@ -92,7 +197,8 @@ class Window(QMainWindow):
         self.finish_message = ''  # передается сообщение в лог после клонирования, удаления и функции writeble
         self.schema_name = ''  # используется для грантов
         self.schema_password = ''  # используется для перекомпиляции view
-        self.shema_name_for_grant = ''  # используется для перекомпиляции view
+        self.schema_name_for_grant = ''  # используется для перекомпиляции view
+        self.job = JobManager()  # наследуемся от нашего класса JobManager
 
     def msg_window(self):
         """
@@ -461,16 +567,17 @@ class Window(QMainWindow):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
         """
-        data = self.process.readAllStandardOutput()
-        stdout = bytes(data).decode("utf8")
+        stderr = bytes(self.process.readAllStandardError()).decode("utf8")
+        stdout = bytes(self.process.readAllStandardOutput()).decode("utf8")
+        output = stderr + stdout
         find_ora_error = re.compile("ORA-\d{1,5}:")
-        searching_in_stdout = find_ora_error.search(stdout)
+        searching_in_stdout = find_ora_error.search(output)
         try:
-            start = stdout.find(searching_in_stdout.group(0))
-            self.error_message = stdout.strip()[start:]
+            start = output.find(searching_in_stdout.group(0))
+            self.error_message = output.strip()[start:]
             self.process.kill()
         except:
-            self.input_schemas_area.append(stdout.strip())
+            self.input_schemas_area.append(output.strip())
             return self.process.exitCode()
 
     def show_schemas_process_finished(self):
@@ -486,7 +593,7 @@ class Window(QMainWindow):
         elif self.process.exitCode() == 0:
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
-            logger.info(f'Функция "Показать созданные схемы в PDB" успешно завершена')
+            logger.info('Процесс завершен без ошибок')
 
     def get_pdbs_schemas(self):
         """
@@ -527,8 +634,8 @@ class Window(QMainWindow):
         elif self.process.exitCode() == 0:
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
-            logger.info('Функция "Создание схемы" успешно завершена')
-            self.grant_oracle_privilege(self.shema_name_for_grant)  # начиная отсюда нужно выделять отдельный класс
+            logger.info('Процесс завершен без ошибок')
+            self.grant_oracle_privilege(self.schema_name_for_grant)
 
     def handle_schemas_stderr(self):
         """
@@ -553,6 +660,31 @@ class Window(QMainWindow):
             self.schemas_progressbar.setRange(0, 1)
             logger.info(f'Функция "{self.finish_message}" успешно завершена')
 
+    def handle_state(self, state):  # это используется для удаления схем
+        states = {
+            QProcess.ProcessState.NotRunning: 'Not Running',
+            QProcess.ProcessState.Starting: 'Starting',
+            QProcess.ProcessState.Running: 'Running'
+        }
+        self.state_name = states[state]
+
+    def display_result(self, job_id, data):  # выводит в поле текст во время создания схем
+        self.input_schemas_area.append(data)
+
+    def done_message(self, code, text):  # отлавливаем сигнал о завершении
+        if code == 0:
+            self.schemas_progressbar.setRange(0, 1)
+            print('Start grant to schema')
+        elif code != 0:
+            self.schemas_progressbar.setRange(0, 1)
+            print('ERROR', code)
+            self.message_text = text
+            self.msg_window()
+
+    def extract_vars(self, output_data):  # парсер
+        data = output_data.strip()
+        return data
+
     def creating_schemas(self):
         """
         :return: создать схемы
@@ -562,27 +694,33 @@ class Window(QMainWindow):
         sysdba_password = self.input_main_password.text()
         bd_name = self.list_pdb.currentText().upper()
         checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
-        if self.process is None:
-            if connection_string and sysdba_name and sysdba_password and bd_name:
-                self.schemas_progressbar.setRange(0, 0)
+        if connection_string and sysdba_name and sysdba_password and bd_name:
+            self.schemas_progressbar.setRange(0, 0)
+            if len(checked_schemas) == 1:
+                self.job.result.connect(self.display_result)
+                name = eval('self.input_' + checked_schemas[0] + '_name.text()')
+                identified = eval('self.input_' + checked_schemas[0] + '_pass.text()')
+                oracle_string = get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, name,
+                                                                identified, bd_name)
+                self.input_schemas_area.append(f'Начато создание схемы {name}')
+                self.job.execute(oracle_string, parsers=[(self.extract_vars, "result")])
+                self.job.finish.connect(self.done_message)
+            elif len(checked_schemas) > 1:
                 for schema_name in checked_schemas:
-                    self.process = QProcess()
-                    self.process.readyReadStandardError.connect(self.handle_stderr)
-                    self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
-                    self.process.finished.connect(self.creating_schemas_process_finished)
+                    self.job.result.connect(self.display_result)
                     name = eval('self.input_' + schema_name + '_name.text()')
                     identified = eval('self.input_' + schema_name + '_pass.text()')
-                    connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                    oracle_string = get_string_create_oracle_schema(connection_string_without_orcl, sysdba_name, sysdba_password, name, identified, bd_name)
-                    self.process.startCommand(oracle_string)
-                    logger.info(f'Создается схема {name}')
-                    self.shema_name_for_grant = name
+                    oracle_string = get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password,
+                                                                    name, identified, bd_name)
+                    self.input_schemas_area.append(f'Начато создание схемы {name}')
+                    self.job.execute(oracle_string, parsers=[(self.extract_vars, "result")])
+                    self.job.finish.connect(self.done_message)
             else:
-                logger.warning('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
-                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
-                                     '\t- строка подключения к CDB\n\t- имя PDB')
+                logger.warning('Не найдены отмеченные чекбоксами схемы')
         else:
-            logger.warning('Вызван новый процесс до завершения старого')
+            logger.warning('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
+            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
+                                 '\t- строка подключения к CDB\n\t- имя PDB')
 
     def grant_oracle_privilege(self, schema_name):
         """
@@ -633,7 +771,7 @@ class Window(QMainWindow):
                 self.schemas_progressbar.setRange(0, 0)
                 if len(checked_schemas) == 1:
                     self.process = QProcess()
-                    self.process.readyReadStandardError.connect(self.handle_schemas_stderr)
+                    self.process.readyReadStandardError.connect(self.handle_stdout_schemas)
                     self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
                     self.process.finished.connect(self.import_dumps_process_finished)
                     name = eval('self.input_' + checked_schemas[0] + '_name.text()')
@@ -714,20 +852,23 @@ class Window(QMainWindow):
                     name = eval('self.input_' + checked_schemas[0] + '_name.text()')
                     self.input_schemas_area.append(f'Начато удаление схемы {name}')
                     connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                    oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name, sysdba_password, bd_name, name)
+                    oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name,
+                                                                    sysdba_password, bd_name, name)
                     self.process.startCommand(oracle_string)
-                    self.finish_message = f'Удаление схемы {name}'
                 elif len(checked_schemas) > 1:
                     for schema_name in checked_schemas:
                         self.process = QProcess()
                         self.process.readyReadStandardError.connect(self.handle_stderr)
+                        self.process.stateChanged.connect(self.handle_state)
                         self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
                         self.process.finished.connect(self.schemas_finished)
                         name = eval('self.input_' + schema_name + '_name.text()')
                         connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                        oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name, sysdba_password, bd_name, name)
+                        oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name,
+                                                                        sysdba_password, bd_name, name)
                         self.process.startCommand(oracle_string)
-                        self.finish_message = f'Удаление схемы {name}'
+                        while self.state_name != 'Not Running':
+                            self.process.waitForFinished()
                 else:
                     logger.warning('Не найдены отмеченные чекбоксами схемы')
                     self.message_text = 'Проверьте отмечены ли схемы'
