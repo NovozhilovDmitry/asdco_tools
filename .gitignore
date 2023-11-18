@@ -1,5 +1,6 @@
 /config.ini
-/logger.log
+*.log
 /.idea
 .idea
 */__pycache__
+/sql-scripts/*.sql

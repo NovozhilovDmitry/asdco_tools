@@ -39,7 +39,6 @@ def create_file_for_pdb(filename):
     file_name = directory_name.joinpath(filename)
     with open(file_name, 'w'):
         pass
-    logger.info(f'Создан файл для получения информации из потока QProcess {filename}')
     return file_name
 
 
@@ -79,6 +78,7 @@ exit;
     """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    logger.info(f'Подключение к {connection_string} под пользователем {sysdba_name}')
     return cmd
 
 
@@ -186,22 +186,7 @@ def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_passw
     :return: создана схема
     """
     script = f"""create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
-exit;"""
-    script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
-    return cmd
-
-
-def get_string_grant_oracle_privilege(connection_string, sysdba_name, sysdba_password, schema_name, pdb_name):
-    """
-    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
-    :param sysdba_name: логин пользователя SYSDBA
-    :param sysdba_password: пароль пользователя SYSDBA
-    :param schema_name: имя схемы, которой даются права
-    :param pdb_name: имя pdb, в которой создана схема
-    :return: выданы права для схемы
-    """
-    script = f"""grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
+grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
 grant FLASHBACK ANY TABLE,UNLIMITED TABLESPACE, CREATE ANY DIRECTORY, ALTER SESSION, SELECT ANY DICTIONARY to {schema_name};
 grant SELECT on V_$SESSION to {schema_name};
 grant SELECT on V_$LOCKED_OBJECT to {schema_name};
@@ -221,9 +206,8 @@ grant EXECUTE on CHECKCOMPLETEHISTINTEGRITY_UPD to {schema_name};
 grant EXECUTE on CheckASDCOtoAPOuniqueness to {schema_name};
 grant execute on add_DateField to {schema_name};
 grant execute on formatPrecision to {schema_name};
-grant read,write on directory {DATA_PUMP_DIR} to {schema_name};
-exit;
-"""
+grant read, write on directory {DATA_PUMP_DIR} to {schema_name};
+exit;"""
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
     return cmd
@@ -245,7 +229,7 @@ select USERNAME, CREATED from dba_users where COMMON='NO';
 exit;
 """
     script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} @{script_file}'
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
     return cmd
 
 
@@ -260,7 +244,6 @@ def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, sc
     :return: импорт схем из дампа
     """
     cmd = f"imp.exe {schema_name}/{schema_password}@{connection_string}/{pdb_name} FILE='{schema_dump_file}' FROMUSER={schema_name_in_dump} TOUSER={schema_name} GRANTS=N COMMIT=Y BUFFER=8192000"
-    logger.info(f'Вызов оракловского приложения для импортирования БД (imp.exe)')
     return cmd
 
 
@@ -375,7 +358,6 @@ def get_last_login_to_common_schemas(connection_string, sysdba_name, sysdba_pass
     :param pdb_name: имя pdb, к которой подключаемся
     :return: показывает последний вход пользователей
     """
-
     script = f"""set heading off
 set feedback off
 select USERNAME || '; ' || to_char(LAST_LOGIN, 'DD.MM.YYYY HH24:MI:SS') from dba_users where COMMON='NO' and LAST_LOGIN is not null;
@@ -386,15 +368,12 @@ exit;"""
 
 
 def get_total_space_and_used_space_from_zabbix():
-    """
-    :return: получение информации об общем размере сервера oracle и количество свободного пространства
-    """
-    header = {'Content-Type': 'application/json'}
-    data = requests.post('http://192.268.65.170/api_jsonrpc.php', headers=header,
-                         json={'jsonrpc': '2.0', 'method': 'history.get',
-                               'params': {'history': 3, 'hostids': ['11185'], 'itemids': ['108285', '108288'],
-                                          'output': 'extend', 'limit': 2, 'sortfield': 'clock', 'sortorder': 'DESC'},
-                               'auth': 'fe57381c8834819d9ca7f99f644c8dc30b3e9ec6956bdb2c57efa9af29127032', 'id': 1})
+    headers = {'Content-Type': 'application/json'}
+    data = requests.post('http://192.168.65.170/api_jsonrpc.php', headers=headers,
+                         json={"jsonrpc": "2.0", "method": "history.get",
+                               "params": {"history": 3, "hostids": ["11185"], "itemids": ["108285", "108288"],
+                                          "output": "extend", "limit": 2, "sortfield": "clock", "sortorder": "DESC"},
+                               "auth": "fe57381c8834819d9ca7f99f644c8dc30b3e9ec6956bdb2c57efa9af29127032", "id": 1})
     data_dict = data.json()
     line_for_print = data_dict['result']
     temp_dict = {'used_space': 0, 'total_space': 0}

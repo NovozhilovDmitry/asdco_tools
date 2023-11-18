@@ -2,10 +2,12 @@ import sys
 import re
 import traceback
 import uuid
+import getpass
+import time
 from datetime import datetime, date
 from myLogging import logger
 from PyQt6.QtGui import QPixmap, QIcon
-from PyQt6.QtCore import (QSettings, QProcess, QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot,
+from PyQt6.QtCore import (QSettings, QProcess, QObject, pyqtSignal, pyqtSlot, QRunnable, QThreadPool,
                           QAbstractListModel, Qt)
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QLabel, QGridLayout, QApplication, QPushButton, QLineEdit, QTextEdit,
                              QCheckBox, QComboBox, QVBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
@@ -19,7 +21,6 @@ from functions import (get_string_show_pdbs,
                        get_string_delete_pdb,
                        format_list_result,
                        get_string_create_oracle_schema,
-                       get_string_grant_oracle_privilege,
                        get_string_show_oracle_users,
                        get_string_enabled_oracle_asdco_options,
                        get_string_import_oracle_schema,
@@ -27,7 +28,6 @@ from functions import (get_string_show_pdbs,
                        create_file_for_pdb,
                        get_last_login_to_common_schemas,
                        get_total_space_and_used_space_from_zabbix)
-
 
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 600
@@ -39,12 +39,6 @@ DEFAULT_STATE = {
 
 
 class JobManager(QAbstractListModel):
-    """
-    Менеджер обработки активных заданий, потока stdout, stderr
-    Также функционирует как Qt модель данных для отображения
-    прогресса каждого процесса
-    """
-
     _jobs = {}
     _state = {}
     _parsers = {}
@@ -52,31 +46,27 @@ class JobManager(QAbstractListModel):
     result = pyqtSignal(str, object)
     progress = pyqtSignal(str, int)
     finish = pyqtSignal(int, str)
-
+    
     def __init__(self):
         super().__init__()
-        self.progress.connect(self.handle_progress)  # Внутренний сигнал, который запускает обновление прогресса
+        self.p = None
+        self.progress.connect(self.handle_progress)
 
-    def execute(self, command, arguments, parsers=None):
-        """
-        Выполнить команду запустив новый процесс
-        """
+    def execute(self, command, parsers=None):
         job_id = uuid.uuid4().hex
-        # по умолчанию сигналы не имеют доступ к информации об отправленном процессе
-        # используем конструктов для отправки сигналов с job_id
 
         def fwd_signal(target):
             return lambda *args: target(job_id, *args)
 
         self._parsers[job_id] = parsers or []
-        self._state[job_id] = DEFAULT_STATE.copy()  # установить по умолчанию статус - ожидание и прогресс 0
-        p = QProcess()
-        p.readyReadStandardOutput.connect(fwd_signal(self.handle_output))
-        p.readyReadStandardError.connect(fwd_signal(self.handle_output))
-        p.stateChanged.connect(fwd_signal(self.handle_state))
-        p.finished.connect(fwd_signal(self.done))
-        self._jobs[job_id] = p
-        p.start(command, arguments)
+        self._state[job_id] = DEFAULT_STATE.copy()
+        self.p = QProcess()
+        self.p.readyReadStandardOutput.connect(fwd_signal(self.handle_output))
+        self.p.readyReadStandardError.connect(fwd_signal(self.handle_output))
+        self.p.stateChanged.connect(fwd_signal(self.handle_state))
+        self.p.finished.connect(fwd_signal(self.done))
+        self._jobs[job_id] = self.p
+        self.p.startCommand(command)
         self.layoutChanged.emit()
 
     def handle_output(self, job_id):
@@ -92,14 +82,11 @@ class JobManager(QAbstractListModel):
             searching_in_stdout = find_ora_error.search(data)
             try:
                 start = data.find(searching_in_stdout.group(0))
-                message_error = data.strip()[start:]
-                self.finish.emit(999, message_error)
-                self.cleanup()
-                # QProcess.terminate()
+                self.message_error = data.strip()[start:]
+                self.p.kill()
             except:
                 signal = getattr(self, signal_name)
                 signal.emit(job_id, result)
-                self.finish.emit(0, '')
 
     def handle_progress(self, job_id, progress):
         self._state[job_id]["progress"] = progress
@@ -110,23 +97,14 @@ class JobManager(QAbstractListModel):
         self.layoutChanged.emit()
 
     def done(self, job_id, exit_code, exit_status):
-        """
-        задача завершена и ее надо удалить из из слоавря активных задач
-        """
-        # self.finish.emit(exit_code, str(exit_status))
         del self._jobs[job_id]
+        del self._state[job_id]
+        if exit_code == 0:
+            self.finish.emit(exit_code, str(exit_status))
+        else:
+            self.finish.emit(exit_code, self.message_error)
         self.layoutChanged.emit()
 
-    def cleanup(self):
-        """
-        удалить все завершенные или сломавшиеся воркеры из словаря worker_state
-        """
-        for job_id, s in list(self._state.items()):
-            if s["status"] == QProcess.ProcessState.NotRunning:
-                del self._state[job_id]
-        self.layoutChanged.emit()
-
-    # Model interface
     def data(self, index, role):
         if role == Qt.ItemDataRole.DisplayRole:
             job_ids = list(self._state.keys())
@@ -141,6 +119,7 @@ class WorkerSignals(QObject):
     finish = pyqtSignal()
     error = pyqtSignal(tuple)
     result = pyqtSignal(object)
+    progress = pyqtSignal(int)
 
 
 class Worker(QRunnable):
@@ -150,19 +129,20 @@ class Worker(QRunnable):
         self.args = args
         self.kwargs = kwargs
         self.signals = WorkerSignals()
+        kwargs['progress_callback'] = self.signals.progress
 
     @pyqtSlot()
     def run(self):
-        try:
+        try:  # выполняем переданный из window метод
             result = self.fn(*self.args, **self.kwargs)
         except:
             traceback.print_exc()
             exctype, value = sys.exc_info()[:2]
-            self.signals.error.emit(exctype, value, traceback.format_exc())
-        else:
-            self.signals.result.emit(result)
+            self.signals.error.emit((exctype, value, traceback.format_exc()))
+        else:  # если ошибок не было, то формируем сигнал .result и передаем результат
+            self.signals.result.emit(result)  # Вернуть результат обработки
         finally:
-            self.signals.finish.emit()
+            self.signals.finish.emit()  # Готово
 
 
 class Window(QMainWindow):
@@ -172,8 +152,8 @@ class Window(QMainWindow):
         self.setMinimumSize(WINDOW_WIDTH, WINDOW_HEIGHT)  # минимальный размер окна
         self.btn_icon = QPixmap("others/folder.png")  # иконка для приложения
         self.layout = QWidget()  # наследуемся для макета
-        self.stbar = QStatusBar()  #
-        self.threadpool = QThreadPool()  #
+        self.stbar = QStatusBar()
+        self.threadpool = QThreadPool()
         self.main_layout = QVBoxLayout()  # вертикальный макет
         self.top_grid_layout = QGridLayout()  # макет с сеткой
         self.tabs = QTabWidget()  # наследуемся для вкладок
@@ -191,20 +171,19 @@ class Window(QMainWindow):
         self.layout.setLayout(self.main_layout)
         self.setCentralWidget(self.layout)
         self.initialization_settings()  # вызов функции с инициализацией сохраненных значений
-        # self._get_info_from_server()  # запустить в отдельном потоке получение инфы по api
+        self.thread_get_info_from_server()  # запустить получение инфы о размере по api
         self.process = None  # это для QProcess
-        self.message_text = ''  # используется для передачи ошибки в окно msg_window
         self.finish_message = ''  # передается сообщение в лог после клонирования, удаления и функции writeble
         self.schema_name = ''  # используется для грантов
         self.schema_password = ''  # используется для перекомпиляции view
-        self.schema_name_for_grant = ''  # используется для перекомпиляции view
         self.job = JobManager()  # наследуемся от нашего класса JobManager
+        self.space_warning = ''  # заполняется, если на сервере будет меньше 50 гб свободного места
+        self.current_user = getpass.getuser()  # получение имени текущего пользователя
 
-    def msg_window(self):
+    def msg_window(self, text):
         """
         :return: вызов диалогового окна
         """
-        text = self.message_text
         dlg = QMessageBox()
         dlg.setWindowTitle('ОШИБКА')
         dlg.setText(text)
@@ -212,53 +191,53 @@ class Window(QMainWindow):
         dlg.setIcon(QMessageBox.Icon.Warning)
         dlg.exec()
 
-    def _print_complete(self):
+    def thread_print_complete(self):
         """
         :return: слот для сигнала о завершении потока
         """
-        logger.info('Информация о пространстве на сервере oracle получены и записана в статусную строку')
+        logger.info('Информация о пространстве на сервере oracle получена и записана в статусную строку')
         self.stbar.showMessage(self.status_string)
+        if self.space_warning != '':
+            self.msg_window(self.space_warning)
 
-    def _get_info_from_server(self):
+    def thread_get_info_from_server(self):
         """
-        :return: передача функции по запросу информации по api в отдельном потоке
+        :return: передача функции по проверки pdb в отдельном потоке
         """
-        logger.info('Запрошена информация о состоянии сервера oracle')
-        worker = Worker(self._get_space)
-        worker.signals.finish.connect(self._print_complete)
+        logger.info('Запрошена информация по api о состоянии сервера oracle')
+        worker = Worker(self.fn_get_space)  # функция, которая выполняется в потоке
+        worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
         self.threadpool.start(worker)
 
-    def _get_space(self):
+    def fn_get_space(self, progress_callback):
         """
-        :return: получение данных и формирование сообщения в статусную строку
-        """
+        :param progress_callback: передача результатов из класса потока
+        :return: передает сообщение в функцию thread_print_output"""
         data = get_total_space_and_used_space_from_zabbix()
-        self.status_string - f"""Под базы данных oracle выделено {round(data['total_space'] /1024 /1024 /1024)} Гб. Занято: {round(data['used_space'] /1024 /1024 /1024)} Гб, свободно: {round((data['total_space'] - data['used_space']) /1024 /1024 /1024)} Гб"""
-
-    def handle_stderr(self):
-        """
-        :return: отлавливаем ошибки из запущенной через QProcess программы
-        """
-        data = self.process.readAllStandardError()
-        stderr = bytes(data).decode("utf8")
-        logger.error(stderr)
-        self.error_message = stderr
+        total_space = round(data["total_space"] / 1024 / 1024 / 1024)
+        used_space = round(data["used_space"] / 1024 / 1024 / 1024)
+        empty_space = round((data["total_space"] - data["used_space"]) / 1024 / 1024 / 1024)
+        if empty_space < 50:
+            self.space_warning = 'На сервере осталось свободного места меньше 50 Гб. Пожалуйста, посмотрите свои базы и удалите не актуальные'
+        
+        self.status_string = f"""Под базы данных oracle выделено {total_space} Гб. Занято: {used_space} Гб, свободно: {empty_space} Гб"""
 
     def handle_stdout_pdb_list(self):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
         """
-        data = self.process.readAllStandardOutput()
-        stdout = bytes(data).decode("utf8")
+        stdout = bytes(self.process.readAllStandardOutput()).decode("utf8")
+        stderr = bytes(self.process.readAllStandardError()).decode("utf8")
+        output = (stdout + stderr).strip()
         find_ora_error = re.compile("ORA-\d{1,5}:")
-        searching_in_stdout = find_ora_error.search(stdout)
+        searching_in_stdout = find_ora_error.search(output)
         try:
-            start = stdout.find(searching_in_stdout.group(0))
-            self.error_message = stdout.strip()[start:]
+            start = output.find(searching_in_stdout.group(0))
+            self.error_message = output[start:]
             self.process.kill()
         except:
             with open(self.full_path_to_file, 'a') as file:
-                file.write(stdout)
+                file.write(output + '\n')
             return self.process.exitCode()
 
     def process_pdb_list_finished(self):
@@ -269,13 +248,12 @@ class Window(QMainWindow):
             self.process = None
             self.pdb_progressbar.setRange(0, 1)
             logger.warning('Процесс завершен с ошибками')
-            self.message_text = self.error_message
-            self.msg_window()
+            self.msg_window(self.error_message)
         elif self.process.exitCode() == 0:
             current_pdb = self.list_pdb.currentText()
             with open(self.full_path_to_file, 'r') as file:
                 data = file.read()
-            result_list = data.split('\n\n')
+            result_list = data.split('\n')
             self.pdb_name_list = formating_sqlplus_results_and_return_pdb_names(result_list)
             self.table.setSortingEnabled(False)  # отключаем возможность сортировки по столбцам
             self.table.setRowCount(len(self.pdb_name_list))  # количество строк по длине списка
@@ -313,16 +291,22 @@ class Window(QMainWindow):
                 oracle_string = get_string_show_pdbs(connection_string, sysdba_name, sysdba_password)
                 self.full_path_to_file = create_file_for_pdb('pdb_name.txt')
                 self.process = QProcess()
-                self.process.readyReadStandardError.connect(self.handle_stderr)  # сигнал об ошибках
+                self.process.readyReadStandardError.connect(self.handle_stdout_pdb_list)  # сигнал об ошибках
                 self.process.readyReadStandardOutput.connect(self.handle_stdout_pdb_list)  # сигнал во время работы
                 self.process.finished.connect(self.process_pdb_list_finished)  # сигнал после завершения всех задач
                 self.process.startCommand(oracle_string)
                 logger.info('Запущена процедура получения списка PDB')
             else:
                 logger.warning('Не заполнены все обязательные поля. Проверка подключения прервана')
-                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
-                                     '\t- строка подключения к CDB\n\t- имя PDB')
-                self.msg_window()
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif sysdba_name == '':
+                    temp_list.append('-пользователь SYSDBA\n')
+                elif sysdba_password == '':
+                    temp_list.append('-пароль SYSDBA')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
 
@@ -330,22 +314,23 @@ class Window(QMainWindow):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
         """
-        data = self.process.readAllStandardOutput()
-        stdout = bytes(data).decode("utf8")
+        stdout = bytes(self.process.readAllStandardOutput()).decode("utf8")
+        stderr = bytes(self.process.readAllStandardError()).decode("utf8")
+        output = (stdout + stderr).strip()
         find_ora_error = re.compile("ORA-\d{1,5}:")
-        searching_in_stdout = find_ora_error.search(stdout)
+        searching_in_stdout = find_ora_error.search(output)
         try:
-            start = stdout.find(searching_in_stdout.group(0))
-            self.error_message = stdout.strip()[start:]
+            start = output.find(searching_in_stdout.group(0))
+            self.error_message = output[start:]
             self.process.kill()
         except:
-            ora_not_error = re.search(r'CONNECTION SUCCESS', stdout)
+            ora_not_error = re.search(r'CONNECTION SUCCESS', output)
             if ora_not_error.group(0):
                 logger.info('Успешное подключение к PDB')
-                self.stdout_data = stdout
+                self.stdout_data = output
             else:
-                logger.warning(stdout.strip())
-                self.error_message = stdout.strip()
+                logger.warning(output)
+                self.error_message = output
             return self.process.exitCode()
 
     def process_finished_connect(self):
@@ -357,8 +342,7 @@ class Window(QMainWindow):
             self.pdb_progressbar.setRange(0, 1)
             self.btn_connect.setEnabled(True)
             logger.warning('Процесс завершен с ошибками')
-            self.message_text = self.error_message
-            self.msg_window()
+            self.msg_window(self.error_message)
         elif self.process.exitCode() == 0:
             self.process = None
             self.pdb_progressbar.setRange(0, 1)
@@ -366,7 +350,7 @@ class Window(QMainWindow):
             self.btn_clone_pdb.setEnabled(True)
             self.btn_delete_pdb.setEnabled(True)
             self.btn_make_pdb_for_write.setEnabled(True)
-            logger.info(f'Функция "{self.finish_message}" успешно завершена')
+            logger.info('Процесс завершен без ошибок')
 
     def check_connect_to_pdb(self):
         """
@@ -385,17 +369,24 @@ class Window(QMainWindow):
                 self.btn_delete_pdb.setEnabled(False)
                 self.btn_make_pdb_for_write.setEnabled(False)
                 self.process = QProcess()
-                self.process.readyReadStandardError.connect(self.handle_stderr)  # сигнал об ошибках
+                self.process.readyReadStandardError.connect(self.handle_stdout_connect)  # сигнал об ошибках
                 self.process.readyReadStandardOutput.connect(self.handle_stdout_connect)  # сигнал во время работы
                 self.process.finished.connect(self.process_finished_connect)  # сигнал после завершения всех задач
                 self.process.startCommand(oracle_string)
                 logger.info('Запущена процедура проверки подключения к PDB')
-                self.finish_message = 'Проверка подключения к PDB'
             else:
                 logger.warning('Не заполнены все обязательные поля. Проверка подключения прервана')
-                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
-                                     '\t- строка подключения к CDB\n\t- имя PDB')
-                self.msg_window()
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif sysdba_name == '':
+                    temp_list.append('-пользователь SYSDBA\n')
+                elif sysdba_password == '':
+                    temp_list.append('-пароль SYSDBA\n')
+                elif pdb_name == '':
+                    temp_list.append('-имя PDB')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
 
@@ -403,13 +394,14 @@ class Window(QMainWindow):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
         """
-        data = self.process.readAllStandardOutput()
-        stdout = bytes(data).decode("utf8")
+        stdout = bytes(self.process.readAllStandardOutput()).decode("utf8")
+        stderr = bytes(self.process.readAllStandardError()).decode("utf8")
+        output = (stdout + stderr).strip()
         find_ora_error = re.compile("ORA-\d{1,5}:")
-        searching_in_stdout = find_ora_error.search(stdout)
+        searching_in_stdout = find_ora_error.search(output)
         try:
-            start = stdout.find(searching_in_stdout.group(0))
-            self.error_message = stdout.strip()[start:]
+            start = output.find(searching_in_stdout.group(0))
+            self.error_message = output[start:]
             self.process.kill()
         except:
             return self.process.exitCode()
@@ -422,8 +414,7 @@ class Window(QMainWindow):
             self.process = None
             self.pdb_progressbar.setRange(0, 1)
             logger.warning('Процесс завершен с ошибками')
-            self.message_text = self.error_message
-            self.msg_window()
+            self.msg_window(self.error_message)
             self.btn_connect.setEnabled(True)
         elif self.process.exitCode() == 0:
             self.process = None
@@ -434,7 +425,7 @@ class Window(QMainWindow):
             self.btn_make_pdb_for_write.setEnabled(True)
             logger.info('Перезаполнение списка PDB и таблицы')
             self.get_pdb_name_from_bd()
-            logger.info(f'Функция "{self.finish_message}" успешно завершена')
+            logger.info(f'Функция выполнена "{self.finish_message}"')
 
     def execute_command(self, cmd):
         """
@@ -442,7 +433,7 @@ class Window(QMainWindow):
         :return: запускается программа и подключаются сигналы к слотам
         """
         self.process = QProcess()
-        self.process.readyReadStandardError.connect(self.handle_stderr)  # сигнал об ошибках
+        self.process.readyReadStandardError.connect(self.handle_stdout)  # сигнал об ошибках
         self.process.readyReadStandardOutput.connect(self.handle_stdout)  # сигнал во время работы
         self.process.finished.connect(self.process_finished)  # сигнал после завершения всех задач
         self.process.startCommand(cmd)
@@ -452,39 +443,49 @@ class Window(QMainWindow):
         :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
         """
         connection_string = self.line_main_connect.text()
-        schema_name = self.input_main_login.text()
-        schema_password = self.input_main_password.text()
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
         pdb_name_clone = self.input_newpdb.text().upper()
         if self.process is None:
-            if connection_string and schema_name and schema_password and pdb_name and pdb_name_clone:
-                self.pdb_progressbar.setRange(0, 0)
+            if connection_string and sysdba_name and sysdba_password and pdb_name and pdb_name_clone:
                 if pdb_name_clone == 'ASDCOEMPTY_ETALON' or pdb_name_clone == 'PDB$SEED':
                     logger.error('Заблокирована попытка клонирования на базу ASDCOEMPTY_ETALON или PDB$SEED')
-                    self.message_text = 'Клонирование на БД ASDCOEMPTY_ETALON или PDB$SEED запрещено'
-                    self.msg_window()
+                    message_text = 'Клонирование на БД ASDCOEMPTY_ETALON или PDB$SEED запрещено'
+                    self.msg_window(message_text)
                 elif pdb_name_clone == pdb_name:
                     logger.error('Имя новой PDB и имеющейся PDB не должны совпадать')
-                    self.message_text = 'Имя новой PDB и имеющейся PDB не должны совпадать'
-                    self.msg_window()
+                    message_text = 'Имя новой PDB и имеющейся PDB не должны совпадать'
+                    self.msg_window(message_text)
                 elif pdb_name_clone == '':
                     logger.error('Имя новой PDB не заполнено')
-                    self.message_text = 'Имя новой PDB не заполнено'
-                    self.msg_window()
+                    message_text = 'Имя новой PDB не заполнено'
+                    self.msg_window(message_text)
                 else:
+                    self.pdb_progressbar.setRange(0, 0)
                     self.btn_connect.setEnabled(False)
                     self.btn_clone_pdb.setEnabled(False)
                     self.btn_delete_pdb.setEnabled(False)
                     self.btn_make_pdb_for_write.setEnabled(False)
-                    oracle_string = get_string_clone_pdb(connection_string, schema_name, schema_password, pdb_name, pdb_name_clone)
+                    oracle_string = get_string_clone_pdb(connection_string, sysdba_name, sysdba_password, pdb_name, pdb_name_clone)
                     self.execute_command(oracle_string)
                     logger.info(f'Запущена процедура клонирования PDB. Имя новой PDB: {pdb_name_clone}')
                     self.finish_message = 'Клонирование PDB'
             else:
                 logger.warning('Не заполнены все обязательные поля. Клонирование PDB прервано')
-                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
-                                     '\t- строка подключения к CDB\n\t- имя PDB\n\t- новое имя PDB')
-                self.msg_window()
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif sysdba_name == '':
+                    temp_list.append('-пользователь SYSDBA\n')
+                elif sysdba_password == '':
+                    temp_list.append('-пароль SYSDBA\n')
+                elif pdb_name == '':
+                    temp_list.append('-имя PDB\n')
+                elif pdb_name_clone == '':
+                    temp_list.append('-имя новой PDB')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
 
@@ -493,32 +494,56 @@ class Window(QMainWindow):
         :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
         """
         connection_string = self.line_main_connect.text()
-        schema_name = self.input_main_login.text()
-        schema_password = self.input_main_password.text()
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
-        self.current_index = self.get_index()
+        current_index = self.get_index()
         if self.process is None:
-            if connection_string and schema_name and schema_password and pdb_name:
-                self.pdb_progressbar.setRange(0, 0)
-                if pdb_name == 'ASDCOEMPTY_ETALON' or pdb_name == 'PDB$SEED':
-                    logger.error('Заблокирована попытка удаления на базу ASDCOEMPTY_ETALON или PDB$SEED')
-                    self.message_text = 'Обнаружена попытка удаления ASDCOEMPTY_ETALON или PDB$SEED'
-                    self.msg_window()
+            if connection_string and sysdba_name and sysdba_password and pdb_name:
+                if self.current_user != '65nda':
+                    if pdb_name == 'ASDCOEMPTY_ETALON' or pdb_name == 'PDB$SEED':
+                        logger.error('Заблокирована попытка удаления на базу ASDCOEMPTY_ETALON или PDB$SEED')
+                        message_text = 'Обнаружена попытка удаления ASDCOEMPTY_ETALON или PDB$SEED'
+                        self.msg_window(message_text)
+                    elif pdb_name.startswith('ETALON'):
+                        logger.error(f'Пользователь {self.current_user} попытался удалить эталонную базу')
+                        message_text = 'Текущему пользователю запрещено удалять эталонные базы'
+                        self.msg_window(message_text)
+                    else:
+                        self.pdb_progressbar.setRange(0, 0)
+                        self.btn_connect.setEnabled(False)
+                        self.btn_clone_pdb.setEnabled(False)
+                        self.btn_delete_pdb.setEnabled(False)
+                        self.btn_make_pdb_for_write.setEnabled(False)
+                        oracle_string = get_string_delete_pdb(connection_string, sysdba_name, sysdba_password, pdb_name)
+                        self.execute_command(oracle_string)
+                        self.list_pdb.setCurrentIndex(current_index)
+                        logger.info(f'Запущена процедура удаления PDB {pdb_name}')
+                        self.finish_message = 'Удаление PDB'
                 else:
+                    self.pdb_progressbar.setRange(0, 0)
                     self.btn_connect.setEnabled(False)
                     self.btn_clone_pdb.setEnabled(False)
                     self.btn_delete_pdb.setEnabled(False)
                     self.btn_make_pdb_for_write.setEnabled(False)
-                    oracle_string = get_string_delete_pdb(connection_string, schema_name, schema_password, pdb_name)
+                    oracle_string = get_string_delete_pdb(connection_string, sysdba_name, sysdba_password, pdb_name)
                     self.execute_command(oracle_string)
-                    self.list_pdb.setCurrentIndex(self.current_index)
+                    self.list_pdb.setCurrentIndex(current_index)
                     logger.info(f'Запущена процедура удаления PDB {pdb_name}')
                     self.finish_message = 'Удаление PDB'
             else:
                 logger.warning('Не заполнены все обязательные поля. Удаление PDB прервано')
-                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
-                                     '\t- строка подключения к CDB\n\t- имя PDB')
-                self.msg_window()
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif sysdba_name == '':
+                    temp_list.append('-пользователь SYSDBA\n')
+                elif sysdba_password == '':
+                    temp_list.append('-пароль SYSDBA\n')
+                elif pdb_name == '':
+                    temp_list.append('-имя PDB')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завршения старого')
 
@@ -527,29 +552,37 @@ class Window(QMainWindow):
         :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
         """
         connection_string = self.line_main_connect.text()
-        schema_name = self.input_main_login.text()
-        schema_password = self.input_main_password.text()
+        sysdba_name = self.input_main_login.text()
+        sysdba_password = self.input_main_password.text()
         pdb_name = self.list_pdb.currentText().upper()
         if self.process is None:
-            if connection_string and schema_name and schema_password and pdb_name:
+            if connection_string and sysdba_name and sysdba_password and pdb_name:
                 self.pdb_progressbar.setRange(0, 0)
                 self.btn_connect.setEnabled(False)
                 self.btn_clone_pdb.setEnabled(False)
                 self.btn_delete_pdb.setEnabled(False)
                 self.btn_make_pdb_for_write.setEnabled(False)
                 self.process = QProcess()
-                self.process.readyReadStandardError.connect(self.handle_stderr)  # сигнал об ошибках
+                self.process.readyReadStandardError.connect(self.handle_stdout)  # сигнал об ошибках
                 self.process.readyReadStandardOutput.connect(self.handle_stdout)  # сигнал во время работы
                 self.process.finished.connect(self.process_finished_connect)  # сигнал после завершения всех задач
-                oracle_string = get_string_make_pdb_writable(connection_string, schema_name, schema_password, pdb_name)
+                oracle_string = get_string_make_pdb_writable(connection_string, sysdba_name, sysdba_password, pdb_name)
                 self.process.startCommand(oracle_string)
-                logger.info(f'Запущена процедура перевода PDB {pdb_name} в режим доступной для записи ')
-                self.finish_message = 'Перевести PDB в режим writeble'
+                logger.info('Запущена процедура перевода PDB в режим доступной для записи')
+                self.finish_message = 'Перевести PDB в режим доступной для записи'
             else:
                 logger.warning('Не заполнены все обязательные поля. Перевод PDB в режим записи прерван')
-                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
-                                     '\t- строка подключения к CDB\n\t- имя PDB')
-                self.msg_window()
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif sysdba_name == '':
+                    temp_list.append('-пользователь SYSDBA\n')
+                elif sysdba_password == '':
+                    temp_list.append('-пароль SYSDBA\n')
+                elif pdb_name == '':
+                    temp_list.append('-имя PDB')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завршения старого')
 
@@ -567,17 +600,17 @@ class Window(QMainWindow):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
         """
-        stderr = bytes(self.process.readAllStandardError()).decode("utf8")
         stdout = bytes(self.process.readAllStandardOutput()).decode("utf8")
-        output = stderr + stdout
+        stderr = bytes(self.process.readAllStandardError()).decode("utf8")
+        output = (stdout + stderr).strip()
         find_ora_error = re.compile("ORA-\d{1,5}:")
         searching_in_stdout = find_ora_error.search(output)
         try:
             start = output.find(searching_in_stdout.group(0))
-            self.error_message = output.strip()[start:]
+            self.error_message = output[start:]
             self.process.kill()
         except:
-            self.input_schemas_area.append(output.strip())
+            self.input_schemas_area.append(output)
             return self.process.exitCode()
 
     def show_schemas_process_finished(self):
@@ -588,8 +621,7 @@ class Window(QMainWindow):
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.warning('Процесс завершен с ошибками')
-            self.message_text = self.error_message
-            self.msg_window()
+            self.msg_window(self.error_message)
         elif self.process.exitCode() == 0:
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
@@ -602,22 +634,30 @@ class Window(QMainWindow):
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
-        bd_name = self.list_pdb.currentText().upper()
+        pdb_name = self.list_pdb.currentText().upper()
         if self.process is None:
-            if connection_string and sysdba_name and sysdba_password and bd_name:
+            if connection_string and sysdba_name and sysdba_password and pdb_name:
                 self.schemas_progressbar.setRange(0, 0)
                 self.process = QProcess()
-                self.process.readyReadStandardError.connect(self.handle_stderr)
+                self.process.readyReadStandardError.connect(self.handle_stdout_schemas)
                 self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
                 self.process.finished.connect(self.show_schemas_process_finished)
                 connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                oracle_string = get_string_show_oracle_users(connection_string_without_orcl, sysdba_name, sysdba_password, bd_name)
+                oracle_string = get_string_show_oracle_users(connection_string_without_orcl, sysdba_name, sysdba_password, pdb_name)
                 self.process.startCommand(oracle_string)
             else:
                 logger.warning('Не заполнены все обязательные поля. Невозможно отобразить существующие схемы')
-                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
-                                     '\t- строка подключения к CDB\n\t- имя PDB')
-                self.msg_window()
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif sysdba_name == '':
+                    temp_list.append('-пользователь SYSDBA\n')
+                elif sysdba_password == '':
+                    temp_list.append('-пароль SYSDBA\n')
+                elif pdb_name == '':
+                    temp_list.append('-имя PDB')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
 
@@ -629,21 +669,11 @@ class Window(QMainWindow):
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.warning('Процесс завершен с ошибками')
-            self.message_text = self.error_message
-            self.msg_window()
+            self.msg_window(self.error_message)
         elif self.process.exitCode() == 0:
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.info('Процесс завершен без ошибок')
-            self.grant_oracle_privilege(self.schema_name_for_grant)
-
-    def handle_schemas_stderr(self):
-        """
-        :return: отлавливаем ошибки из запущенной через QProcess программы
-        """
-        data = self.process.readAllStandardError()
-        stderr = bytes(data).decode("utf8")
-        self.input_schemas_area.append(stderr.strip())
 
     def schemas_finished(self):
         """
@@ -653,35 +683,39 @@ class Window(QMainWindow):
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.warning('Процесс завершен с ошибками')
-            self.message_text = self.error_message
-            self.msg_window()
+            self.msg_window(self.error_message)
         elif self.process.exitCode() == 0:
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
-            logger.info(f'Функция "{self.finish_message}" успешно завершена')
+            logger.info('Процесс завершен без ошибок')
 
-    def handle_state(self, state):  # это используется для удаления схем
-        states = {
-            QProcess.ProcessState.NotRunning: 'Not Running',
-            QProcess.ProcessState.Starting: 'Starting',
-            QProcess.ProcessState.Running: 'Running'
-        }
-        self.state_name = states[state]
-
-    def display_result(self, job_id, data):  # выводит в поле текст во время создания схем
+    def display_result(self, job_id, data):
+        """
+        :param job_id: уникальный номер для запущенного процесса
+        :param data: данные из потоков stdout, stderr
+        :return: записывает потоком данные в input_schemas_area
+        """
         self.input_schemas_area.append(data)
 
-    def done_message(self, code, text):  # отлавливаем сигнал о завершении
+    def done_message(self, code, text):
+        """
+        :param code: код завершения процесса
+        :param text: текст завершения процесса
+        :return: обработка сигнала о завершении процесса
+        """
         if code == 0:
             self.schemas_progressbar.setRange(0, 1)
-            print('Start grant to schema')
+            self.input_schemas_area.append(f'{self.operation_name}е схемы завершено успешно')
         elif code != 0:
             self.schemas_progressbar.setRange(0, 1)
-            print('ERROR', code)
-            self.message_text = text
-            self.msg_window()
+            self.input_schemas_area.append(f'Ошибка при {self.operation_name}и схемы')
+            self.msg_window(text)
 
-    def extract_vars(self, output_data):  # парсер
+    def extract_vars(self, output_data):
+        """
+        :param output_data: данные из потока stdout, stderr
+        :return: обработанные данные
+        """
         data = output_data.strip()
         return data
 
@@ -692,56 +726,53 @@ class Window(QMainWindow):
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
-        bd_name = self.list_pdb.currentText().upper()
+        pdb_name = self.list_pdb.currentText().upper()
         checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
-        if connection_string and sysdba_name and sysdba_password and bd_name:
-            self.schemas_progressbar.setRange(0, 0)
-            if len(checked_schemas) == 1:
-                self.job.result.connect(self.display_result)
-                name = eval('self.input_' + checked_schemas[0] + '_name.text()')
-                identified = eval('self.input_' + checked_schemas[0] + '_pass.text()')
-                oracle_string = get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, name,
-                                                                identified, bd_name)
-                self.input_schemas_area.append(f'Начато создание схемы {name}')
-                self.job.execute(oracle_string, parsers=[(self.extract_vars, "result")])
-                self.job.finish.connect(self.done_message)
-            elif len(checked_schemas) > 1:
-                for schema_name in checked_schemas:
-                    self.job.result.connect(self.display_result)
-                    name = eval('self.input_' + schema_name + '_name.text()')
-                    identified = eval('self.input_' + schema_name + '_pass.text()')
-                    oracle_string = get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password,
-                                                                    name, identified, bd_name)
+        if self.process is None:
+            if connection_string and sysdba_name and sysdba_password and pdb_name:
+                if len(checked_schemas) == 1:
+                    self.schemas_progressbar.setRange(0, 0)
+                    self.process = QProcess()
+                    self.process.readyReadStandardError.connect(self.handle_stdout_schemas)
+                    self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
+                    self.process.finished.connect(self.schemas_finished)
+                    name = eval('self.input_' + checked_schemas[0] + '_name.text()')
+                    identified = eval('self.input_' + checked_schemas[0] + '_pass.text()')
+                    connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                    oracle_string = get_string_create_oracle_schema(connection_string_without_orcl, sysdba_name, sysdba_password, name, identified, pdb_name)
                     self.input_schemas_area.append(f'Начато создание схемы {name}')
-                    self.job.execute(oracle_string, parsers=[(self.extract_vars, "result")])
-                    self.job.finish.connect(self.done_message)
+                    self.process.startCommand(oracle_string)
+                elif len(checked_schemas) > 1:
+                    self.schemas_progressbar.setRange(0, 0)
+                    for schema_name in checked_schemas:
+                        self.job.result.connect(self.display_result)
+                        self.job.finish.connect(self.done_message)
+                        name = eval('self.input_' + schema_name + '_name.text()')
+                        identified = eval('self.input_' + schema_name + '_pass.text()')
+                        connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                        oracle_string = get_string_create_oracle_schema(connection_string_without_orcl, sysdba_name, sysdba_password, name, identified, pdb_name)
+                        self.input_schemas_area.append(f'Начато создание схемы {name}')
+                        self.job.execute(oracle_string, parsers=[(self.extract_vars, "result")])
+                        self.operation_name = 'создани'
+                else:
+                    logger.warning('Не найдены отмеченные чекбоксами схемы')
+                    message_text = 'Не найдены отмеченные чекбоксами схемы'
+                    self.msg_window(message_text)
             else:
-                logger.warning('Не найдены отмеченные чекбоксами схемы')
+                logger.warning('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif sysdba_name == '':
+                    temp_list.append('-пользователь SYSDBA\n')
+                elif sysdba_password == '':
+                    temp_list.append('-пароль SYSDBA\n')
+                elif pdb_name == '':
+                    temp_list.append('-имя PDB')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
         else:
-            logger.warning('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
-            self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
-                                 '\t- строка подключения к CDB\n\t- имя PDB')
-
-    def grant_oracle_privilege(self, schema_name):
-        """
-        :return: выдать гранты созданным схемам
-        """
-        connection_string = self.line_main_connect.text()
-        sysdba_name = self.input_main_login.text()
-        sysdba_password = self.input_main_password.text()
-        bd_name = self.list_pdb.currentText().upper()
-        if schema_name == '':
-            logger.error('Гранты для схемы не выданы - не передано название схемы')
-        else:
-            self.process = QProcess()
-            self.process.readyReadStandardError.connect(self.handle_stderr)
-            self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
-            self.process.finished.connect(self.schemas_finished)
-            connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-            oracle_string = get_string_grant_oracle_privilege(connection_string_without_orcl, sysdba_name, sysdba_password, schema_name, bd_name)
-            self.process.startCommand(oracle_string)
-            self.finish_message = 'Выдача привилегий'
-            logger.info(f'Для схемы {schema_name} выданы привилегии')
+            logger.warning('Вызван новый процесс до завершения старого')
 
     def import_dumps_process_finished(self):
         """
@@ -751,25 +782,24 @@ class Window(QMainWindow):
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.warning('Процесс завершен с ошибками')
-            self.message_text = self.error_message
-            self.msg_window()
+            self.msg_window(self.error_message)
         elif self.process.exitCode() == 0:
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
-            logger.info('Функция "Импортировать данные из дампа" успешно завершена')
-            self.compile_view_and_options(self.schema_name, self.schema_password)
+            logger.info('Процесс завершен без ошибок')
+            self.compile_view_and_options(self.name, self.password)
 
     def import_from_dumps_to_schemas(self):
         """
         :return: импорт из дампа выбранных схем
         """
         connection_string = self.line_main_connect.text()
-        bd_name = self.list_pdb.currentText().upper()
+        pdb_name = self.list_pdb.currentText().upper()
         checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
         if self.process is None:
-            if connection_string and bd_name:
-                self.schemas_progressbar.setRange(0, 0)
+            if connection_string and pdb_name:
                 if len(checked_schemas) == 1:
+                    self.schemas_progressbar.setRange(0, 0)
                     self.process = QProcess()
                     self.process.readyReadStandardError.connect(self.handle_stdout_schemas)
                     self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
@@ -779,35 +809,28 @@ class Window(QMainWindow):
                     dump_for_schema_path = eval('self.path_' + checked_schemas[0] + '.text()')
                     dump_name = eval('self.pdb_' + checked_schemas[0] + '_name.text()')
                     connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                    oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, bd_name, name, identified, dump_name, dump_for_schema_path)
+                    oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, pdb_name, name, identified, dump_name, dump_for_schema_path)
                     self.process.startCommand(oracle_string)
-                    self.schema_name = name
-                    self.schema_password = identified
+                    self.name = name
+                    self.password = identified
                     logger.info(f'Начат процесс импорта из дампа для схемы {name}')
                 elif len(checked_schemas) > 1:
-                    for schema_name in checked_schemas:
-                        self.process = QProcess()
-                        self.process.readyReadStandardError.connect(self.handle_stderr)
-                        self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
-                        self.process.finished.connect(self.import_dumps_process_finished)
-                        name = eval('self.input_' + schema_name + '_name.text()')
-                        identified = eval('self.input_' + schema_name + '_pass.text()')
-                        dump_for_schema_path = eval('self.path_' + schema_name + '.text()')
-                        dump_name = eval('self.pdb_' + schema_name + '_name.text()')
-                        self.input_schemas_area.append(f'Начато выполнение импорта из дампа для схемы {name}')
-                        connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                        oracle_string = get_string_import_oracle_schema(connection_string_without_orcl, bd_name, name, identified, dump_name, dump_for_schema_path)
-                        self.process.startCommand(oracle_string)
-                        self.schema_name = name
-                        self.schema_password = identified
-                        logger.info(f'Начат процесс импорта из дампа для схемы {name}')
+                    logger.warning(f'Запрещен множественный импорт из дампа')
+                    message_text = 'Невозможно импортировать более одной схемы одновременно'
+                    self.msg_window(message_text)
                 else:
                     logger.warning('Не найдены отмеченные чекбоксами схемы')
-                    self.message_text = 'Не найдены отмеченные чекбоксами схемы'
-                    self.schemas_progressbar.setRange(0, 1)
+                    message_text = 'Не найдены отмеченные чекбоксами схемы'
+                    self.msg_window(message_text)
             else:
                 logger.warning('Не заполнены все обязательные поля. Невозможно импортировать из дампа')
-                self.message_text = 'Не заполнены все обязательные поля:\n\t- строка подключения к CDB\n\t- имя PDB'
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif pdb_name == '':
+                    temp_list.append('-имя PDB')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
 
@@ -824,13 +847,69 @@ class Window(QMainWindow):
             logger.error('Компиляция схем невозможна из-за ошибки - не переданы имя и пароль схемы')
         else:
             self.process = QProcess()
-            self.process.readyReadStandardError.connect(self.handle_stderr)
+            self.process.readyReadStandardError.connect(self.handle_stdout_schemas)
             self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
             self.process.finished.connect(self.schemas_finished)
             enabled_schemes_options_string = get_string_enabled_oracle_asdco_options(connection_string_without_orcl, bd_name, name, identified)
             self.process.startCommand(enabled_schemes_options_string)
-            self.finish_message = 'Перекомпиляция view и функций для созданной схемы'
             logger.info(f'Начато включение опций и перекомпиляция view и функций для схемы {name}')
+
+    def export_schema_process_finished(self):
+        """
+        :return: отлавливаем сигнал о завершении процесса
+        """
+        if self.process.exitCode() != 0:
+            self.process = None
+            self.schemas_progressbar.setRange(0, 1)
+            logger.warning('Процесс завершен с ошибками')
+            self.msg_window(self.error_message)
+        elif self.process.exitCode() == 0:
+            self.process = None
+            self.schemas_progressbar.setRange(0, 1)
+            logger.info('Процесс завершен без ошибок')
+    
+    def export_from_schema_to_dump(self):
+        """
+        :return: экспорта дампа из выбранной схемы
+        """
+        connection_string = self.line_main_connect.text()
+        pdb_name = self.list_pdb.currentText().upper()
+        checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
+        if self.process is None:
+            if connection_string and pdb_name:
+                if len(checked_schemas) == 1:
+                    self.schemas_progressbar.setRange(0, 0)
+                    self.process = QProcess()
+                    self.process.readyReadStandardError.connect(self.handle_stdout_schemas)
+                    self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
+                    self.process.finished.connect(self.export_schema_process_finished)
+                    name = eval('self.input_' + checked_schemas[0] + '_name.text()')
+                    # identified = eval('self.input_' + checked_schemas[0] + '_pass.text()')
+                    # dump_for_schema_path = eval('self.path_' + checked_schemas[0] + '.text()')
+                    # dump_name = eval('self.pdb_' + checked_schemas[0] + '_name.text()')
+                    # connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
+                    # oracle_string = get_string_export_schema()
+                    # self.process.startCommand(oracle_string)
+                    logger.info(f'Начат процесс экспорта схемы {name} в дамп')
+                elif len(checked_schemas) > 1:
+                    logger.warning(f'Запрещен множественный экспорт схем')
+                    message_text = 'Невозможно экспортировать более одной схемы одновременно'
+                    self.msg_window(message_text)
+                else:
+                    logger.warning('Не найдены отмеченные чекбоксами схемы')
+                    message_text = 'Не найдены отмеченные чекбоксами схемы'
+                    self.msg_window(message_text)
+            else:
+                logger.warning('Не заполнены все обязательные поля. Невозможно импортировать из дампа')
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif pdb_name == '':
+                    temp_list.append('-имя PDB')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
+        else:
+            logger.warning('Вызван новый процесс до завершения старого')
 
     def deleting_schemas(self):
         """
@@ -839,44 +918,50 @@ class Window(QMainWindow):
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
-        bd_name = self.list_pdb.currentText().upper()
+        pdb_name = self.list_pdb.currentText().upper()
         checked_schemas = [key for key in self.schemas.keys() if self.schemas[key] == 1]
         if self.process is None:
-            if connection_string and sysdba_name and sysdba_password:
-                self.schemas_progressbar.setRange(0, 0)
+            if connection_string and sysdba_name and sysdba_password and pdb_name:
                 if len(checked_schemas) == 1:
+                    self.schemas_progressbar.setRange(0, 0)
                     self.process = QProcess()
-                    self.process.readyReadStandardError.connect(self.handle_stderr)
+                    self.process.readyReadStandardError.connect(self.handle_stdout_schemas)
                     self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
                     self.process.finished.connect(self.schemas_finished)
                     name = eval('self.input_' + checked_schemas[0] + '_name.text()')
                     self.input_schemas_area.append(f'Начато удаление схемы {name}')
                     connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                    oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name,
-                                                                    sysdba_password, bd_name, name)
+                    oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name, sysdba_password, pdb_name, name)
                     self.process.startCommand(oracle_string)
                 elif len(checked_schemas) > 1:
+                    self.schemas_progressbar.setRange(0, 0)
                     for schema_name in checked_schemas:
-                        self.process = QProcess()
-                        self.process.readyReadStandardError.connect(self.handle_stderr)
-                        self.process.stateChanged.connect(self.handle_state)
-                        self.process.readyReadStandardOutput.connect(self.handle_stdout_schemas)
-                        self.process.finished.connect(self.schemas_finished)
+                        self.job.result.connect(self.display_result)
+                        self.job.finish.connect(self.done_message)
                         name = eval('self.input_' + schema_name + '_name.text()')
                         connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
                         oracle_string = get_string_delete_oracle_scheme(connection_string_without_orcl, sysdba_name,
-                                                                        sysdba_password, bd_name, name)
-                        self.process.startCommand(oracle_string)
-                        while self.state_name != 'Not Running':
-                            self.process.waitForFinished()
+                                                                        sysdba_password, pdb_name, name)
+                        self.input_schemas_area.append(f'Начато создание схемы {name}')
+                        self.job.execute(oracle_string, parsers=[(self.extract_vars, "result")])
+                        self.operation_name = 'удалени'
                 else:
                     logger.warning('Не найдены отмеченные чекбоксами схемы')
-                    self.message_text = 'Проверьте отмечены ли схемы'
-                    self.schemas_progressbar.setRange(0, 1)
+                    message_text = 'Проверьте отмечены ли схемы'
+                    self.msg_window(message_text)
             else:
                 logger.warning('Не заполнены все обязательные поля. Невозможно удалить схемы')
-                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
-                                     '\t- строка подключения к CDB\n\t- имя PDB')
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif sysdba_name == '':
+                    temp_list.append('-пользователь SYSDBA\n')
+                elif sysdba_password == '':
+                    temp_list.append('-пароль SYSDBA\n')
+                elif pdb_name == '':
+                    temp_list.append('-имя PDB')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
 
@@ -884,17 +969,18 @@ class Window(QMainWindow):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
         """
-        data = self.process.readAllStandardOutput()
-        stdout = bytes(data).decode("utf8")
+        stdout = bytes(self.process.readAllStandardOutput()).decode("utf8")
+        stderr = bytes(self.process.readAllStandardError()).decode("utf8")
+        output = (stdout + stderr).strip()
         find_ora_error = re.compile("ORA-\d{1,5}:")
-        searching_in_stdout = find_ora_error.search(stdout)
+        searching_in_stdout = find_ora_error.search(output)
         try:
-            start = stdout.find(searching_in_stdout.group(0))
-            self.error_message = stdout.strip()[start:]
+            start = output.find(searching_in_stdout.group(0))
+            self.error_message = output[start:]
             self.process.kill()
         except:
             with open(self.full_path_to_file_username, 'a') as file:
-                file.write(stdout)
+                file.write(output)
             return self.process.exitCode()
 
     def check_last_login_process_finished(self):
@@ -905,8 +991,7 @@ class Window(QMainWindow):
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.warning('Процесс завершен с ошибками')
-            self.message_text = self.error_message
-            self.msg_window()
+            self.msg_window(self.error_message)
         elif self.process.exitCode() == 0:
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
@@ -928,7 +1013,7 @@ class Window(QMainWindow):
                         self.input_schemas_area.insertHtml(f"Последний вход в схему {key} <span style= color:#008000;>был выполнен {delta_days} дней назад</span> (последний вход был выполнен {value})<br>")
                 except ValueError:
                     self.input_schemas_area.insertHtml(f"В схему {key} был выполнен вход {value}<br>")
-            logger.info('Функция "Проверка входа в схемы" выполнена успешно')
+            logger.info('Процесс завершен без ошибок')
 
     def check_last_login(self):
         """
@@ -937,26 +1022,34 @@ class Window(QMainWindow):
         connection_string = self.line_main_connect.text()
         sysdba_name = self.input_main_login.text()
         sysdba_password = self.input_main_password.text()
-        bd_name = self.list_pdb.currentText().upper()
+        pdb_name = self.list_pdb.currentText().upper()
         if self.process is None:
-            if connection_string and sysdba_name and sysdba_password and bd_name:
+            if connection_string and sysdba_name and sysdba_password and pdb_name:
                 self.schemas_progressbar.setRange(0, 0)
                 connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                oracle_string = get_last_login_to_common_schemas(connection_string_without_orcl, sysdba_name, sysdba_password, bd_name)
+                oracle_string = get_last_login_to_common_schemas(connection_string_without_orcl, sysdba_name, sysdba_password, pdb_name)
                 self.full_path_to_file_username = create_file_for_pdb('username_and_date.txt')
                 self.input_schemas_area.clear()
                 self.input_schemas_area.append(f'Проверяем последний вход в схемы для PDB: {self.list_pdb.currentText().upper()}\n')
                 self.process = QProcess()
-                self.process.readyReadStandardError.connect(self.handle_stderr)
+                self.process.readyReadStandardError.connect(self.handle_stdout_check_last_login)
                 self.process.readyReadStandardOutput.connect(self.handle_stdout_check_last_login)
                 self.process.finished.connect(self.check_last_login_process_finished)
                 self.process.startCommand(oracle_string)
                 logger.info('Запущена проверка последнего входа для созданных пользователей')
             else:
                 logger.warning('Не заполнены все обязательные поля. Невозможно отобразить последний вход пользователей')
-                self.message_text = ('Не заполнены все обязательные поля:\n\t- пользователь/пароль SYSDBA\n'
-                                     '\t- строка подключения к CDB\n\t- имя PDB')
-                self.msg_window()
+                temp_list = ['Не заполнены следующие обязательные поля:\n']
+                if connection_string == '':
+                    temp_list.append('-строка подключения к CDB\n')
+                elif sysdba_name == '':
+                    temp_list.append('-пользователь SYSDBA\n')
+                elif sysdba_password == '':
+                    temp_list.append('-пароль SYSDBA\n')
+                elif pdb_name == '':
+                    temp_list.append('-имя PDB')
+                message_text = ''.join(temp_list)
+                self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
 
@@ -990,6 +1083,7 @@ class Window(QMainWindow):
         self.settings.setValue('connectline', self.line_main_connect.text())
         self.settings.setValue('password', self.input_main_password.text())
         self.settings.setValue('PDB_name', self.list_pdb.currentText())
+        self.settings.setValue('exit_date', str(datetime.now()))
         self.settings.beginGroup('GUI')
         self.settings.setValue('width', self.geometry().width())
         self.settings.setValue('height', self.geometry().height())
@@ -1113,16 +1207,16 @@ class Window(QMainWindow):
         self.btn_make_pdb_for_write.clicked.connect(self.make_pdb_writable)
         self.btn_make_pdb_for_write.setEnabled(False)
         self.pdb_progressbar = QProgressBar()
-        self.pdb_progressbar.setStyleSheet('text-align: center; min-height: 20px; max-height: 20px;')
+        self.pdb_progressbar.setStyleSheet('text-align: center; min-height: 10px; max-height: 10px;')
         self.table = QTableWidget()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.tab_control.layout.addWidget(self.input_newpdb, 0, 1)
         self.tab_control.layout.addWidget(self.btn_connect, 0, 0)
+        self.tab_control.layout.addWidget(self.input_newpdb, 0, 1)
         self.tab_control.layout.addWidget(self.btn_clone_pdb, 0, 2)
-        self.tab_control.layout.addWidget(self.table, 2, 0, 1, 3)
-        self.tab_control.layout.addWidget(self.btn_make_pdb_for_write, 1, 0)
-        self.tab_control.layout.addWidget(self.pdb_progressbar, 1, 1)
-        self.tab_control.layout.addWidget(self.btn_delete_pdb, 1, 2)
+        self.tab_control.layout.addWidget(self.pdb_progressbar, 1, 0, 1, 3)
+        self.tab_control.layout.addWidget(self.btn_make_pdb_for_write, 2, 0)
+        self.tab_control.layout.addWidget(self.btn_delete_pdb, 2, 2)
+        self.tab_control.layout.addWidget(self.table, 3, 0, 1, 3)
         self.tab_control.setLayout(self.tab_control.layout)
 
     def schemas_tab(self):
@@ -1189,6 +1283,8 @@ class Window(QMainWindow):
         self.btn_show_schemas.clicked.connect(self.get_pdbs_schemas)
         self.btn_import_from_dumps = QPushButton('Импорт из дампа')
         self.btn_import_from_dumps.clicked.connect(self.import_from_dumps_to_schemas)
+        self.btn_export_to_dump = QPushButton('Экспорт схемы')
+        self.btn_export_to_dump.clicked.connect(self.export_from_schema_to_dump)
         self.btn_check_users_last_login = QPushButton('Проверить последний вход пользователя')
         self.btn_check_users_last_login.clicked.connect(self.check_last_login)
         self.path_schema1 = QLineEdit()
@@ -1219,7 +1315,7 @@ class Window(QMainWindow):
         self.input_schemas_area = QTextEdit()
         self.input_schemas_area.setReadOnly(True)
         self.schemas_progressbar = QProgressBar()
-        self.schemas_progressbar.setStyleSheet('text-align: center; min-height: 20px; max-height: 20px;')
+        self.schemas_progressbar.setStyleSheet('text-align: center; min-height: 10px; max-height: 10px;')
         self.tab_schemas.layout.addWidget(self.checkbox_schema1, 0, 0)
         self.tab_schemas.layout.addWidget(self.input_schema1_name, 0, 1)
         self.tab_schemas.layout.addWidget(self.input_schema1_pass, 0, 2)
@@ -1245,13 +1341,14 @@ class Window(QMainWindow):
         self.tab_schemas.layout.addWidget(self.input_schema5_pass, 4, 2)
         self.tab_schemas.layout.addWidget(self.pdb_schema5_name, 4, 3)
         self.tab_schemas.layout.addWidget(self.path_schema5, 4, 4)
-        self.tab_schemas.layout.addWidget(self.btn_show_schemas, 5, 1)
+        self.tab_schemas.layout.addWidget(self.btn_show_schemas, 5, 0, 1, 2)
         self.tab_schemas.layout.addWidget(self.btn_create_schema, 5, 2)
         self.tab_schemas.layout.addWidget(self.btn_import_from_dumps, 5, 3)
-        self.tab_schemas.layout.addWidget(self.btn_delete_schema, 5, 4)
-        self.tab_schemas.layout.addWidget(self.btn_check_users_last_login, 6, 4)
-        self.tab_schemas.layout.addWidget(self.schemas_progressbar, 6, 2, 1, 2)
-        self.tab_schemas.layout.addWidget(self.input_schemas_area, 7, 0, 1, 5)
+        self.tab_schemas.layout.addWidget(self.btn_export_to_dump, 5, 4)
+        self.tab_schemas.layout.addWidget(self.schemas_progressbar, 6, 0, 1, 5)
+        self.tab_schemas.layout.addWidget(self.btn_check_users_last_login, 7, 0, 1, 2)
+        self.tab_schemas.layout.addWidget(self.btn_delete_schema, 7, 4)
+        self.tab_schemas.layout.addWidget(self.input_schemas_area, 8, 0, 1, 5)
 
 
 if __name__ == '__main__':
@@ -1260,4 +1357,3 @@ if __name__ == '__main__':
     win = Window()
     win.show()
     sys.exit(app.exec())
-    
