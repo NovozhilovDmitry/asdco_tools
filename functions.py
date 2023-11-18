@@ -55,6 +55,12 @@ def delete_temp_directory():
             logger.error(f'Невозможно удалить директорию {TEMP_DIRECTORY} по причине {error}')
 
 
+def get_sql_filenames(directory_path):
+    path = pathlib.Path(directory_path).glob('*.sql')
+    files = [x.name for x in path if x.is_file()]
+    return files
+
+
 def get_string_show_pdbs(connection_string, sysdba_name, sysdba_password):
     """
     :param sysdba_name: логин пользователя SYSDBA

@@ -3,7 +3,6 @@ import re
 import traceback
 import uuid
 import getpass
-import time
 from datetime import datetime, date
 from myLogging import logger
 from PyQt6.QtGui import QPixmap, QIcon
@@ -27,7 +26,8 @@ from functions import (get_string_show_pdbs,
                        get_string_delete_oracle_scheme,
                        create_file_for_pdb,
                        get_last_login_to_common_schemas,
-                       get_total_space_and_used_space_from_zabbix)
+                       get_total_space_and_used_space_from_zabbix,
+                       get_sql_filenames)
 
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 600
@@ -159,19 +159,22 @@ class Window(QMainWindow):
         self.tabs = QTabWidget()  # наследуемся для вкладок
         self.tab_control = QWidget()  # вкладка для pdb
         self.tab_schemas = QWidget()  # вкладка для схем
+        self.tab_scripts = QWidget()  # вкладка для скриптов
         self.settings = QSettings("config.ini", QSettings.Format.IniFormat)  # наследуемся для сохранения настроек
         self.schemas = {'schema1': 0, 'schema2': 0, 'schema3': 0, 'schema4': 0, 'schema5': 0}  # это словарь для чекбоксов
         self.header_layout()  # функция с добавленными элементами интерфейса для верхней части
         self.pdb_tab()  # функция с добавленными элементами вкладки pdb
         self.schemas_tab()  # функция с добавленными элементами вкладки со схемами
+        self.scripts_tab()  # функция с добавленными элементами вкладки со скриптами
         self.tab_schemas.setLayout(self.tab_schemas.layout)
+        self.tab_scripts.setLayout(self.tab_scripts.layout)
         self.main_layout.addLayout(self.top_grid_layout)
         self.main_layout.addWidget(self.tabs)
         self.main_layout.addWidget(self.stbar)
         self.layout.setLayout(self.main_layout)
         self.setCentralWidget(self.layout)
         self.initialization_settings()  # вызов функции с инициализацией сохраненных значений
-        self.thread_get_info_from_server()  # запустить получение инфы о размере по api
+        # self.thread_get_info_from_server()  # запустить получение инфы о размере по api
         self.process = None  # это для QProcess
         self.finish_message = ''  # передается сообщение в лог после клонирования, удаления и функции writeble
         self.schema_name = ''  # используется для грантов
@@ -1053,6 +1056,12 @@ class Window(QMainWindow):
         else:
             logger.warning('Вызван новый процесс до завершения старого')
 
+    def sqlscripts_runner(self):
+        pass
+
+    def fill_schemas_list(self):
+        pass
+
     def fn_checkbox_clicked_for_schemas(self, checked):
         """
         :param checked: принимаем статус чекбокса
@@ -1073,6 +1082,15 @@ class Window(QMainWindow):
         for i in range(1, 6):
             if button is eval('self.btn_path_schema' + str(i)):
                 eval('self.path_schema' + str(i) + '.setText(get_dir[0])')
+
+    def get_directory(self):
+        """
+        :return: устанавливаем путь для директории скриптов
+        """
+        get_dir = QFileDialog.getExistingDirectory(self, 'Выберите директорию')
+        self.path_scripts.setText(get_dir)
+        self.list_scripts.clear()
+        self.list_scripts.addItems(get_sql_filenames(get_dir))
 
     def closeEvent(self, event):
         """
@@ -1289,28 +1307,23 @@ class Window(QMainWindow):
         self.btn_check_users_last_login.clicked.connect(self.check_last_login)
         self.path_schema1 = QLineEdit()
         self.path_schema1.setPlaceholderText('Введите путь или нажмите на кнопку')
-        self.btn_path_schema1 = self.path_schema1.addAction(QIcon(self.btn_icon),
-                                                            QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_schema1 = self.path_schema1.addAction(QIcon(self.btn_icon), QLineEdit.ActionPosition.TrailingPosition)
         self.btn_path_schema1.triggered.connect(self.fn_set_path_for_dumps)
         self.path_schema2 = QLineEdit()
         self.path_schema2.setPlaceholderText('Введите путь или нажмите на кнопку')
-        self.btn_path_schema2 = self.path_schema2.addAction(QIcon(self.btn_icon),
-                                                            QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_schema2 = self.path_schema2.addAction(QIcon(self.btn_icon), QLineEdit.ActionPosition.TrailingPosition)
         self.btn_path_schema2.triggered.connect(self.fn_set_path_for_dumps)
         self.path_schema3 = QLineEdit()
         self.path_schema3.setPlaceholderText('Введите путь или нажмите на кнопку')
-        self.btn_path_schema3 = self.path_schema3.addAction(QIcon(self.btn_icon),
-                                                            QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_schema3 = self.path_schema3.addAction(QIcon(self.btn_icon), QLineEdit.ActionPosition.TrailingPosition)
         self.btn_path_schema3.triggered.connect(self.fn_set_path_for_dumps)
         self.path_schema4 = QLineEdit()
         self.path_schema4.setPlaceholderText('Введите путь или нажмите на кнопку')
-        self.btn_path_schema4 = self.path_schema4.addAction(QIcon(self.btn_icon),
-                                                            QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_schema4 = self.path_schema4.addAction(QIcon(self.btn_icon), QLineEdit.ActionPosition.TrailingPosition)
         self.btn_path_schema4.triggered.connect(self.fn_set_path_for_dumps)
         self.path_schema5 = QLineEdit()
         self.path_schema5.setPlaceholderText('Введите путь или нажмите на кнопку')
-        self.btn_path_schema5 = self.path_schema5.addAction(QIcon(self.btn_icon),
-                                                            QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_schema5 = self.path_schema5.addAction(QIcon(self.btn_icon), QLineEdit.ActionPosition.TrailingPosition)
         self.btn_path_schema5.triggered.connect(self.fn_set_path_for_dumps)
         self.input_schemas_area = QTextEdit()
         self.input_schemas_area.setReadOnly(True)
@@ -1349,6 +1362,35 @@ class Window(QMainWindow):
         self.tab_schemas.layout.addWidget(self.btn_check_users_last_login, 7, 0, 1, 2)
         self.tab_schemas.layout.addWidget(self.btn_delete_schema, 7, 4)
         self.tab_schemas.layout.addWidget(self.input_schemas_area, 8, 0, 1, 5)
+
+    def scripts_tab(self):
+        """
+        :return: добавление виджетов на вкладку с pdb
+        """
+        self.tab_scripts.layout = QGridLayout()
+        self.tabs.addTab(self.tab_scripts, "SQL скрипты")
+        self.list_scripts = QComboBox()
+        self.path_scripts = QLineEdit()
+        self.path_scripts.setPlaceholderText('Введите путь или нажмите на кнопку')
+        self.btn_path_scripts = self.path_scripts.addAction(QIcon(self.btn_icon), QLineEdit.ActionPosition.TrailingPosition)
+        self.btn_path_scripts.triggered.connect(self.get_directory)
+        self.list_schemas_name = QComboBox()
+        self.btn_fill_schemas_list = QPushButton('Заполнить поле именами схем')
+        self.btn_fill_schemas_list.clicked.connect(self.fill_schemas_list)
+        self.btn_fill_schemas_list.setStyleSheet('width: 400')
+        self.btn_script_runner = QPushButton('Запустить скрипт на выбранной PDB')
+        self.btn_script_runner.clicked.connect(self.sqlscripts_runner)
+        self.btn_script_runner.setStyleSheet('width: 400')
+        self.scripts_progressbar = QProgressBar()
+        self.input_scripts_area = QTextEdit()
+        self.input_scripts_area.setReadOnly(True)
+        self.tab_scripts.layout.addWidget(self.path_scripts, 0, 0)
+        self.tab_scripts.layout.addWidget(self.list_scripts, 0, 1)
+        self.tab_scripts.layout.addWidget(self.btn_fill_schemas_list, 1, 0)
+        self.tab_scripts.layout.addWidget(self.list_schemas_name, 1, 1)
+        self.tab_scripts.layout.addWidget(self.btn_script_runner, 2, 1)
+        self.tab_scripts.layout.addWidget(self.scripts_progressbar, 3, 0, 1, 2)
+        self.tab_scripts.layout.addWidget(self.input_scripts_area, 4, 0, 1, 2)
 
 
 if __name__ == '__main__':
