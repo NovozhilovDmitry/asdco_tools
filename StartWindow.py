@@ -1161,7 +1161,7 @@ class Window(QMainWindow):
         self.settings.setValue('deposit_ar_dump_path', self.path_schema4.text())
         self.settings.setValue('reserve_dump_path', self.path_schema5.text())
         self.settings.endGroup()
-        # delete_temp_directory()
+        delete_temp_directory()
         logger.info('Пользовательские настройки сохранены')
         logger.info(f'Файл {__file__} закрыт')
         
@@ -1223,8 +1223,7 @@ class Window(QMainWindow):
         self.line_for_combobox = QLineEdit()
         self.list_pdb.setLineEdit(self.line_for_combobox)
         self.btn_current_pdb = QPushButton('Показать существующие pdb')
-        # self.btn_current_pdb.clicked.connect(self.get_pdb_name_from_bd)
-        self.btn_current_pdb.clicked.connect(self.temp_function)
+        self.btn_current_pdb.clicked.connect(self.get_pdb_name_from_bd)
         self.top_grid_layout.addWidget(self.label_main_login, 0, 0)
         self.top_grid_layout.addWidget(self.input_main_login, 0, 1)
         self.top_grid_layout.addWidget(self.input_main_password, 0, 2)
