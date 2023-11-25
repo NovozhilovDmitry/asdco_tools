@@ -3,6 +3,7 @@ import sys
 import shutil
 import pathlib
 import requests
+import re
 from myLogging import logger
 
 
@@ -63,6 +64,23 @@ def get_sql_filenames(directory_path):
     path = pathlib.Path(directory_path).glob('*.sql')
     files = [x.name for x in path if x.is_file()]
     return files
+
+
+def filter_function(nested_list, regular_expression_pattern):
+    """
+    :param nested_list: вложенный список, полученный из бд
+    :param regular_expression_pattern: регуляорное выражение, по которому идет фильтрация
+    :return: отфильтрованный список
+    """
+    if regular_expression_pattern == '':
+        return nested_list
+    else:
+        exit_list = []
+        re_pattern = re.compile(regular_expression_pattern)
+        for i in nested_list:
+            if re_pattern.search(i[0]):
+                exit_list.append(i)
+        return exit_list
 
 
 def get_string_show_pdbs(connection_string, sysdba_name, sysdba_password):

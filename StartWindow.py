@@ -12,24 +12,15 @@ from PyQt6.QtCore import (QSettings, QProcess, QObject, pyqtSignal, pyqtSlot, QR
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QLabel, QGridLayout, QApplication, QPushButton, QLineEdit, QTextEdit,
                              QCheckBox, QComboBox, QVBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
                              QProgressBar, QFileDialog, QMessageBox, QStatusBar, QStyledItemDelegate, QMenu)
-from functions import (get_string_show_pdbs,
-                       delete_temp_directory,
-                       get_string_check_oracle_connection,
-                       formating_sqlplus_results_and_return_pdb_names,
-                       get_string_clone_pdb,
-                       get_string_make_pdb_writable,
-                       get_string_delete_pdb,
-                       format_list_result,
-                       get_string_create_oracle_schema,
-                       get_string_show_oracle_users,
-                       get_string_enabled_oracle_asdco_options,
-                       get_string_import_oracle_schema,
-                       get_string_delete_oracle_scheme,
-                       create_file_for_pdb,
-                       get_last_login_to_common_schemas,
-                       get_total_space_and_used_space_from_zabbix,
-                       get_sql_filenames,
-                       get_string_export_oracle_scheme)
+from functions import (get_string_show_pdbs, delete_temp_directory, get_string_check_oracle_connection,
+                       formating_sqlplus_results_and_return_pdb_names, get_string_clone_pdb,
+                       get_string_make_pdb_writable, get_string_delete_pdb, format_list_result,
+                       get_string_create_oracle_schema, get_string_show_oracle_users,
+                       get_string_enabled_oracle_asdco_options, get_string_import_oracle_schema,
+                       get_string_delete_oracle_scheme, create_file_for_pdb, get_last_login_to_common_schemas,
+                       get_total_space_and_used_space_from_zabbix, get_sql_filenames, get_string_export_oracle_scheme,
+                       filter_function)
+
 
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 600
@@ -190,12 +181,10 @@ class Window(QMainWindow):
         # self.thread_get_info_from_server()  # запустить получение инфы о размере по api
         self.process = None  # это для QProcess
         self.finish_message = ''  # передается сообщение в лог после клонирования, удаления и функции writeble
-        self.schema_name = ''  # используется для грантов
-        self.schema_password = ''  # используется для перекомпиляции view
         self.job = JobManager()  # наследуемся от нашего класса JobManager
         self.space_warning = ''  # заполняется, если на сервере будет меньше 50 гб свободного места
         self.current_user = getpass.getuser().lower()  # получение имени текущего пользователя
-        
+
     def msg_window(self, text):
         """
         :return: вызов диалогового окна
@@ -274,11 +263,12 @@ class Window(QMainWindow):
                 data = file.read()
             result_list = data.split('\n')
             self.pdb_name_list = formating_sqlplus_results_and_return_pdb_names(result_list)
+            temp_list = format_list_result(result_list)
+            new_list = filter_function(temp_list, self.input_regexp.text().upper())
             self.table.setSortingEnabled(False)  # отключаем возможность сортировки по столбцам
-            self.table.setRowCount(len(self.pdb_name_list))  # количество строк по длине списка
+            self.table.setRowCount(len(new_list))  # количество строк по длине списка
             self.table.setColumnCount(4)  # количество столбцов
             self.table.setHorizontalHeaderLabels(['Имя', 'Дата создания', 'Статус', 'Размер'])  # названия столбцов
-            new_list = format_list_result(result_list)
             row = 0
             for i in new_list:
                 self.table.setItem(row, 0, QTableWidgetItem(i[0]))
@@ -363,14 +353,11 @@ class Window(QMainWindow):
         if self.process.exitCode() != 0:
             self.process = None
             self.pdb_progressbar.setRange(0, 1)
-            self.btn_connect.setEnabled(True)
             logger.warning('Процесс завершен с ошибками')
             self.msg_window(self.error_message)
         elif self.process.exitCode() == 0:
             self.process = None
             self.pdb_progressbar.setRange(0, 1)
-            self.btn_connect.setEnabled(True)
-            self.btn_clone_pdb.setEnabled(True)
             self.stbar.showMessage(f'Проверка подключения к {self.list_pdb.currentText().upper()} выполнена успешно')
             logger.info('Процесс завершен без ошибок')
     
@@ -386,8 +373,6 @@ class Window(QMainWindow):
             if pdb_name and connection_string and sysdba_name and sysdba_password:
                 self.pdb_progressbar.setRange(0, 0)
                 oracle_string = get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password)
-                self.btn_connect.setEnabled(False)
-                self.btn_clone_pdb.setEnabled(False)
                 self.process = QProcess()
                 self.process.readyReadStandardError.connect(self.handle_stdout_connect)  # сигнал об ошибках
                 self.process.readyReadStandardOutput.connect(self.handle_stdout_connect)  # сигнал во время работы
@@ -440,12 +425,9 @@ class Window(QMainWindow):
             self.pdb_progressbar.setRange(0, 1)
             logger.warning('Процесс завершен с ошибками')
             self.msg_window(self.error_message)
-            self.btn_connect.setEnabled(True)
         elif self.process.exitCode() == 0:
             self.process = None
             self.pdb_progressbar.setRange(0, 1)
-            self.btn_connect.setEnabled(True)
-            self.btn_clone_pdb.setEnabled(True)
             logger.info('Перезаполнение списка PDB и таблицы')
             self.get_pdb_name_from_bd()
             self.stbar.showMessage(f'Функция "{self.finish_message}" выполнена')
@@ -487,8 +469,6 @@ class Window(QMainWindow):
                     self.msg_window(message_text)
                 else:
                     self.pdb_progressbar.setRange(0, 0)
-                    self.btn_connect.setEnabled(False)
-                    self.btn_clone_pdb.setEnabled(False)
                     oracle_string = get_string_clone_pdb(connection_string, sysdba_name, sysdba_password, pdb_name,
                                                          pdb_name_clone)
                     self.execute_command(oracle_string)
@@ -534,8 +514,6 @@ class Window(QMainWindow):
                         self.msg_window(message_text)
                     else:
                         self.pdb_progressbar.setRange(0, 0)
-                        self.btn_connect.setEnabled(False)
-                        self.btn_clone_pdb.setEnabled(False)
                         oracle_string = get_string_delete_pdb(connection_string, sysdba_name, sysdba_password, pdb_name)
                         self.execute_command(oracle_string)
                         if len(self.list_pdb) > 0:
@@ -548,8 +526,6 @@ class Window(QMainWindow):
                         self.stbar.showMessage('Идет удаление PDB...')
                 else:
                     self.pdb_progressbar.setRange(0, 0)
-                    self.btn_connect.setEnabled(False)
-                    self.btn_clone_pdb.setEnabled(False)
                     oracle_string = get_string_delete_pdb(connection_string, sysdba_name, sysdba_password, pdb_name)
                     self.execute_command(oracle_string)
                     logger.info(f'Запущена процедура удаления PDB {pdb_name}')
@@ -582,8 +558,6 @@ class Window(QMainWindow):
         if self.process is None:
             if connection_string and sysdba_name and sysdba_password and pdb_name:
                 self.pdb_progressbar.setRange(0, 0)
-                self.btn_connect.setEnabled(False)
-                self.btn_clone_pdb.setEnabled(False)
                 oracle_string = get_string_make_pdb_writable(connection_string, sysdba_name, sysdba_password, pdb_name)
                 self.execute_command(oracle_string)
                 logger.info(f'Запущена процедура перевода PDB "{pdb_name}" в режим доступной для записи')
@@ -1179,7 +1153,7 @@ class Window(QMainWindow):
         self.settings.setValue('deposit_ar_dump_path', self.path_schema4.text())
         self.settings.setValue('reserve_dump_path', self.path_schema5.text())
         self.settings.endGroup()
-        delete_temp_directory()
+        # delete_temp_directory()
         logger.info('Пользовательские настройки сохранены')
         logger.info(f'Файл {__file__} закрыт')
         
@@ -1241,7 +1215,8 @@ class Window(QMainWindow):
         self.line_for_combobox = QLineEdit()
         self.list_pdb.setLineEdit(self.line_for_combobox)
         self.btn_current_pdb = QPushButton('Показать существующие pdb')
-        self.btn_current_pdb.clicked.connect(self.get_pdb_name_from_bd)
+        # self.btn_current_pdb.clicked.connect(self.get_pdb_name_from_bd)
+        self.btn_current_pdb.clicked.connect(self.temp_function)
         self.top_grid_layout.addWidget(self.label_main_login, 0, 0)
         self.top_grid_layout.addWidget(self.input_main_login, 0, 1)
         self.top_grid_layout.addWidget(self.input_main_password, 0, 2)
@@ -1260,13 +1235,12 @@ class Window(QMainWindow):
         self.input_newpdb = QLineEdit()
         self.input_newpdb.setPlaceholderText('Новое имя PDB')
         self.input_newpdb.setToolTip('Введите в данное поле новое имя PDB')
-        self.btn_connect = QPushButton('Проверить подключение к PDB')
-        self.btn_connect.clicked.connect(self.check_connect_to_pdb)
-        self.btn_connect.setStyleSheet('width: 300')
         self.btn_clone_pdb = QPushButton('Клонировать PDB')
-        self.btn_clone_pdb.setEnabled(False)
         self.btn_clone_pdb.clicked.connect(self.cloning_pdb)
-        self.btn_clone_pdb.setStyleSheet('width: 300')
+        self.btn_clone_pdb.setStyleSheet('width: 450')
+        self.input_regexp = QLineEdit()
+        self.input_regexp.setPlaceholderText('Введите имя для фильтрации списка')
+        self.input_regexp.setToolTip('Пример: "NDA" или оставьте поле пустым для получения полного списка')
         self.pdb_progressbar = QProgressBar()
         self.pdb_progressbar.setStyleSheet('text-align: center; min-height: 10px; max-height: 10px;')
         self.table = QTableWidget()
@@ -1275,11 +1249,11 @@ class Window(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.customContextMenuRequested.connect(lambda pos, table=self.table: self.context(pos, table))
         self.table.setItemDelegate(ColorDelegate())
-        self.tab_control.layout.addWidget(self.btn_connect, 0, 0)
-        self.tab_control.layout.addWidget(self.input_newpdb, 0, 1)
-        self.tab_control.layout.addWidget(self.btn_clone_pdb, 0, 2)
-        self.tab_control.layout.addWidget(self.pdb_progressbar, 1, 0, 1, 3)
-        self.tab_control.layout.addWidget(self.table, 2, 0, 1, 3)
+        self.tab_control.layout.addWidget(self.input_newpdb, 0, 0)
+        self.tab_control.layout.addWidget(self.btn_clone_pdb, 0, 1)
+        self.tab_control.layout.addWidget(self.input_regexp, 1, 0)
+        self.tab_control.layout.addWidget(self.table, 2, 0, 1, 2)
+        self.tab_control.layout.addWidget(self.pdb_progressbar, 3, 0, 1, 2)
         self.tab_control.setLayout(self.tab_control.layout)
     
     def schemas_tab(self):
