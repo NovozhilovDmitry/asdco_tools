@@ -56,6 +56,10 @@ def delete_temp_directory():
 
 
 def get_sql_filenames(directory_path):
+    """
+    :param directory_path: указывается путь, где будет начало поиска файлов
+    :return: выводится список файлов в директории, соответствующий формату .sql
+    """
     path = pathlib.Path(directory_path).glob('*.sql')
     files = [x.name for x in path if x.is_file()]
     return files
@@ -75,7 +79,6 @@ set linesize 1000
 set heading off
 column name format a25
 set NUMWIDTH 11
-set NUMFORMAT 99,999,999,999
 select name, creation_time, open_mode, total_size
 from v$pdbs
 where name not in ('ASDCOEMPTY_ETALON', 'PDB$SEED')
@@ -337,6 +340,19 @@ exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {schema_name}/{schema_password}@{connection_string}/{pdb_name} @{script_file}'
+    return cmd
+
+
+def get_string_export_oracle_scheme(connection_string, pdb_name, scheme_name, scheme_password, scheme_dump_file):
+    """
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param pdb_name: имя pdb, к которой подключаемся для импорта
+    :param scheme_name: имя схемы
+    :param scheme_password: пароль от схемы
+    :param scheme_dump_file: путь, где будет создаваться дамп
+    :return: экспорт схемы в дамп
+    """
+    cmd = f"exp.exe {scheme_name}/{scheme_password}@{connection_string}/{pdb_name} FILE='{scheme_dump_file}' CONSISTENT=Y COMPRESS=N GRANTS=N INDEXES=Y ROWS=Y CONSTRAINTS=Y RECORDLENGTH=8192 BUFFER=8192000 DIRECT=N FULL=N RECORD=N STATISTICS=NONE"
     return cmd
 
 
