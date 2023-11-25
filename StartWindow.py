@@ -8,7 +8,7 @@ from datetime import datetime, date
 from myLogging import logger
 from PyQt6.QtGui import QPixmap, QIcon, QColor, QPalette, QAction
 from PyQt6.QtCore import (QSettings, QProcess, QObject, pyqtSignal, pyqtSlot, QRunnable, QThreadPool,
-                          QAbstractListModel, Qt)
+                          QAbstractListModel, Qt, QDate)
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QLabel, QGridLayout, QApplication, QPushButton, QLineEdit, QTextEdit,
                              QCheckBox, QComboBox, QVBoxLayout, QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
                              QProgressBar, QFileDialog, QMessageBox, QStatusBar, QStyledItemDelegate, QMenu)
@@ -271,10 +271,18 @@ class Window(QMainWindow):
             self.table.setHorizontalHeaderLabels(['Имя', 'Дата создания', 'Статус', 'Размер'])  # названия столбцов
             row = 0
             for i in new_list:
-                self.table.setItem(row, 0, QTableWidgetItem(i[0]))
-                self.table.setItem(row, 1, QTableWidgetItem(i[1]))
-                self.table.setItem(row, 2, QTableWidgetItem(i[2]))
-                self.table.setItem(row, 3, QTableWidgetItem(i[3]))
+                item_string_c1 = QTableWidgetItem()
+                item_date = QTableWidgetItem()
+                item_string_c2 = QTableWidgetItem()
+                item_number = QTableWidgetItem()
+                item_string_c1.setData(Qt.ItemDataRole.DisplayRole, i[0])
+                item_date.setData(Qt.ItemDataRole.DisplayRole, QDate.fromString(i[1], 'dd.MM.yyyy'))
+                item_string_c2.setData(Qt.ItemDataRole.DisplayRole, i[2])
+                item_number.setData(Qt.ItemDataRole.DisplayRole, int(i[3]))
+                self.table.setItem(row, 0, item_string_c1)
+                self.table.setItem(row, 1, item_date)
+                self.table.setItem(row, 2, item_string_c2)
+                self.table.setItem(row, 3, item_number)
                 row += 1
             self.list_pdb.clear()
             for i in self.pdb_name_list:
@@ -1210,7 +1218,7 @@ class Window(QMainWindow):
         self.line_main_connect = QLineEdit()
         self.line_main_connect.setToolTip('Пример для .136 сервера: 192.168.65.136:1521/ORCL')
         self.line_main_connect.setPlaceholderText('Указывается ip:порт/Service name')
-        self.label_pdb = QLabel('Имя PDB')
+        self.label_pdb = QLabel('Исходное имя PDB')
         self.list_pdb = QComboBox()
         self.line_for_combobox = QLineEdit()
         self.list_pdb.setLineEdit(self.line_for_combobox)

@@ -97,7 +97,7 @@ set linesize 1000
 set heading off
 column name format a25
 set NUMWIDTH 11
-select name, creation_time, open_mode, total_size
+select name, to_char(creation_time, 'dd.mm.yyyy') as creation_time, open_mode, total_size
 from v$pdbs
 where name not in ('ASDCOEMPTY_ETALON', 'PDB$SEED')
 order by name;
