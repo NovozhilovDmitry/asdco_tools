@@ -21,7 +21,6 @@ from functions import (get_string_show_pdbs, delete_temp_directory, get_string_c
                        get_total_space_and_used_space_from_zabbix, get_sql_filenames, get_string_export_oracle_scheme,
                        filter_function)
 
-
 WINDOW_WIDTH = 1000
 WINDOW_HEIGHT = 600
 TITLE = 'ASDCO TOOLS'
@@ -39,18 +38,18 @@ class JobManager(QAbstractListModel):
     result = pyqtSignal(str, object)
     progress = pyqtSignal(str, int)
     finish = pyqtSignal(int, str)
-    
+
     def __init__(self):
         super().__init__()
         self.p = None
         self.progress.connect(self.handle_progress)
-    
+
     def execute(self, command, parsers=None):
         job_id = uuid.uuid4().hex
-        
+
         def fwd_signal(target):
             return lambda *args: target(job_id, *args)
-        
+
         self._parsers[job_id] = parsers or []
         self._state[job_id] = DEFAULT_STATE.copy()
         self.p = QProcess()
@@ -61,7 +60,7 @@ class JobManager(QAbstractListModel):
         self._jobs[job_id] = self.p
         self.p.startCommand(command)
         self.layoutChanged.emit()
-    
+
     def handle_output(self, job_id):
         p = self._jobs[job_id]
         stderr = bytes(p.readAllStandardError()).decode("utf8")
@@ -80,15 +79,15 @@ class JobManager(QAbstractListModel):
             except:
                 signal = getattr(self, signal_name)
                 signal.emit(job_id, result)
-    
+
     def handle_progress(self, job_id, progress):
         self._state[job_id]["progress"] = progress
         self.layoutChanged.emit()
-    
+
     def handle_state(self, job_id, state):
         self._state[job_id]["status"] = state
         self.layoutChanged.emit()
-    
+
     def done(self, job_id, exit_code, exit_status):
         del self._jobs[job_id]
         del self._state[job_id]
@@ -97,13 +96,13 @@ class JobManager(QAbstractListModel):
         else:
             self.finish.emit(exit_code, self.message_error)
         self.layoutChanged.emit()
-    
+
     def data(self, index, role):
         if role == Qt.ItemDataRole.DisplayRole:
             job_ids = list(self._state.keys())
             job_id = job_ids[index.row()]
             return job_id, self._state[job_id]
-    
+
     def rowCount(self, index):
         return len(self._state)
 
@@ -123,7 +122,7 @@ class Worker(QRunnable):
         self.kwargs = kwargs
         self.signals = WorkerSignals()
         kwargs['progress_callback'] = self.signals.progress
-    
+
     @pyqtSlot()
     def run(self):
         try:  # выполняем переданный из window метод
@@ -138,10 +137,21 @@ class Worker(QRunnable):
             self.signals.finish.emit()  # Готово
 
 
-class ColorDelegate(QStyledItemDelegate):
-    """
-    Класс делегирования цветовой индикации в таблицу для текста
-    """
+class InitialDelegate(QStyledItemDelegate):
+    def __init__(self, decimals, parent=None):
+        super().__init__(parent)
+        self.nDecimals = decimals
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        option.displayAlignment = Qt.AlignmentFlag.AlignLeft
+        try:
+            text = index.model().data(index, Qt.ItemDataRole.DisplayRole)
+            number = int(text)
+            option.text = "{:,d}".format(number, self.nDecimals).replace(',', ' ')
+        except:
+            pass
+
     def paint(self, painter, option, index):
         if index.data() == 'READONLY':
             option.palette.setColor(QPalette.ColorRole.Text, QColor('red'))
@@ -178,7 +188,7 @@ class Window(QMainWindow):
         self.layout.setLayout(self.main_layout)
         self.setCentralWidget(self.layout)
         self.initialization_settings()  # вызов функции с инициализацией сохраненных значений
-        # self.thread_get_info_from_server()  # запустить получение инфы о размере по api
+        self.thread_get_info_from_server()  # запустить получение инфы о размере по api
         self.process = None  # это для QProcess
         self.finish_message = ''  # передается сообщение в лог после клонирования, удаления и функции writeble
         self.job = JobManager()  # наследуемся от нашего класса JobManager
@@ -195,7 +205,7 @@ class Window(QMainWindow):
         dlg.setStandardButtons(QMessageBox.StandardButton.Ok)
         dlg.setIcon(QMessageBox.Icon.Warning)
         dlg.exec()
-    
+
     def thread_print_complete(self):
         """
         :return: слот для сигнала о завершении потока
@@ -204,7 +214,7 @@ class Window(QMainWindow):
         self.footer_label.setText(self.status_string)
         if self.space_warning != '':
             self.msg_window(self.space_warning)
-    
+
     def thread_get_info_from_server(self):
         """
         :return: передача функции по проверки pdb в отдельном потоке
@@ -213,7 +223,7 @@ class Window(QMainWindow):
         worker = Worker(self.fn_get_space)  # функция, которая выполняется в потоке
         worker.signals.finish.connect(self.thread_print_complete)  # сообщение после завершения потока
         self.threadpool.start(worker)
-    
+
     def fn_get_space(self, progress_callback):
         """
         :param progress_callback: передача результатов из класса потока
@@ -223,9 +233,9 @@ class Window(QMainWindow):
         total_space = round(data["total_space"] / 1024 / 1024 / 1024)
         empty_space = round((data["total_space"] - data["used_space"]) / 1024 / 1024 / 1024)
         if empty_space < 50:
-            self.space_warning = 'На сервере осталось свободного места меньше 50 Гб. Пожалуйста, посмотрите свои базы и удалите не актуальные'
-        self.status_string = f"""На 136 сервере выделено {total_space} Гб. Свободно: {empty_space} Гб"""
-    
+            self.space_warning = 'На сервере осталось свободного места меньше 50 Гб. Проверьте свои базы и удалите не актуальные'
+        self.status_string = f"""На 136 сервере свободно {empty_space} Гб. Всего выделено {total_space} Гб"""
+
     def handle_stdout_pdb_list(self):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
@@ -247,7 +257,7 @@ class Window(QMainWindow):
             with open(self.full_path_to_file, 'a') as file:
                 file.write(output + '\n')
             return self.process.exitCode()
-    
+
     def process_pdb_list_finished(self):
         """
         :return: отлавливаем сигнал о завершении процесса и выводим список баз данных
@@ -294,7 +304,7 @@ class Window(QMainWindow):
             self.process = None
             self.pdb_progressbar.setRange(0, 1)
             logger.info('Успешное завершение получения списка PDB')
-    
+
     def get_pdb_name_from_bd(self):
         """
         :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
@@ -326,7 +336,7 @@ class Window(QMainWindow):
                 self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
-    
+
     def handle_stdout_connect(self):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
@@ -353,7 +363,7 @@ class Window(QMainWindow):
                 logger.warning(output)
                 self.error_message = output
             return self.process.exitCode()
-    
+
     def process_finished_connect(self):
         """
         :return: отлавливаем сигнал о завершении процесса
@@ -368,7 +378,7 @@ class Window(QMainWindow):
             self.pdb_progressbar.setRange(0, 1)
             self.stbar.showMessage(f'Проверка подключения к {self.list_pdb.currentText().upper()} выполнена успешно')
             logger.info('Процесс завершен без ошибок')
-    
+
     def check_connect_to_pdb(self):
         """
         :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
@@ -403,7 +413,7 @@ class Window(QMainWindow):
                 self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
-    
+
     def handle_stdout(self):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
@@ -423,7 +433,7 @@ class Window(QMainWindow):
             self.process.kill()
         except:
             return self.process.exitCode()
-    
+
     def process_finished(self):
         """
         :return: отлавливаем сигнал о завершении процесса
@@ -440,7 +450,7 @@ class Window(QMainWindow):
             self.get_pdb_name_from_bd()
             self.stbar.showMessage(f'Функция "{self.finish_message}" выполнена')
             logger.info(f'Функция "{self.finish_message}" выполнена')
-    
+
     def execute_command(self, cmd):
         """
         :param cmd: строка для запуска ПО вместе  аргументами
@@ -451,7 +461,7 @@ class Window(QMainWindow):
         self.process.readyReadStandardOutput.connect(self.handle_stdout)  # сигнал во время работы
         self.process.finished.connect(self.process_finished)  # сигнал после завершения всех задач
         self.process.startCommand(cmd)
-    
+
     def cloning_pdb(self):
         """
         :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
@@ -468,12 +478,14 @@ class Window(QMainWindow):
                     message_text = 'Клонирование на БД ASDCOEMPTY_ETALON или PDB$SEED запрещено'
                     self.msg_window(message_text)
                 elif pdb_name_clone == pdb_name:
-                    logger.error('Имя новой PDB и имеющейся PDB не должны совпадать')
-                    message_text = 'Имя новой PDB и имеющейся PDB не должны совпадать'
+                    error_message = 'Имя новой PDB и имеющейся PDB не должны совпадать'
+                    logger.error(error_message)
+                    message_text = error_message
                     self.msg_window(message_text)
                 elif pdb_name_clone == '':
-                    logger.error('Имя новой PDB не заполнено')
-                    message_text = 'Имя новой PDB не заполнено'
+                    error_message = 'Имя новой PDB не заполнено'
+                    logger.error(error_message)
+                    message_text = error_message
                     self.msg_window(message_text)
                 else:
                     self.pdb_progressbar.setRange(0, 0)
@@ -500,7 +512,7 @@ class Window(QMainWindow):
                 self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
-    
+
     def deleting_pdb(self):
         """
         :return: создаем строку подключения для запуска и отправляем на выполнение в QProcess
@@ -513,8 +525,9 @@ class Window(QMainWindow):
             if connection_string and sysdba_name and sysdba_password and pdb_name:
                 if self.current_user != '65nda':
                     if pdb_name == 'ASDCOEMPTY_ETALON' or pdb_name == 'PDB$SEED':
-                        logger.error('Заблокирована попытка удаления на базу ASDCOEMPTY_ETALON или PDB$SEED')
-                        message_text = 'Обнаружена попытка удаления ASDCOEMPTY_ETALON или PDB$SEED'
+                        error_message = 'Заблокирована попытка удаления ASDCOEMPTY_ETALON или PDB$SEED'
+                        logger.error(error_message)
+                        message_text = error_message
                         self.msg_window(message_text)
                     elif pdb_name.startswith('ETALON'):
                         logger.error(f'Пользователь {self.current_user} попытался удалить эталонную базу')
@@ -524,11 +537,6 @@ class Window(QMainWindow):
                         self.pdb_progressbar.setRange(0, 0)
                         oracle_string = get_string_delete_pdb(connection_string, sysdba_name, sysdba_password, pdb_name)
                         self.execute_command(oracle_string)
-                        if len(self.list_pdb) > 0:
-                            current_index = self.get_index()
-                            self.list_pdb.setCurrentIndex(current_index)
-                        else:
-                            self.list_pdb.clear()
                         logger.info(f'Запущена процедура удаления PDB {pdb_name}')
                         self.finish_message = 'Удаление PDB'
                         self.stbar.showMessage('Идет удаление PDB...')
@@ -586,7 +594,7 @@ class Window(QMainWindow):
                 self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завршения старого')
-    
+
     def handle_stdout_schemas(self):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
@@ -607,7 +615,7 @@ class Window(QMainWindow):
         except:
             self.input_schemas_area.append(output)
             return self.process.exitCode()
-    
+
     def show_schemas_process_finished(self):
         """
         :return: отлавливаем сигнал о завершении процесса
@@ -621,7 +629,7 @@ class Window(QMainWindow):
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.info('Процесс завершен без ошибок')
-    
+
     def get_pdbs_schemas(self):
         """
         :return: показать схемы, которые есть в PDB
@@ -656,7 +664,7 @@ class Window(QMainWindow):
                 self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
-    
+
     def creating_schemas_process_finished(self):
         """
         :return: отлавливаем сигнал о завершении процесса
@@ -670,7 +678,7 @@ class Window(QMainWindow):
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.info('Процесс завершен без ошибок')
-    
+
     def schemas_finished(self):
         """
         :return: отлавливаем сигнал о завершении процесса
@@ -684,7 +692,7 @@ class Window(QMainWindow):
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.info('Процесс завершен без ошибок')
-    
+
     def display_result(self, job_id, data):
         """
         :param job_id: уникальный номер для запущенного процесса
@@ -692,7 +700,7 @@ class Window(QMainWindow):
         :return: записывает потоком данные в input_schemas_area
         """
         self.input_schemas_area.append(data)
-    
+
     def done_message(self, code, text):
         """
         :param code: код завершения процесса
@@ -701,12 +709,12 @@ class Window(QMainWindow):
         """
         if code == 0:
             self.schemas_progressbar.setRange(0, 1)
-            self.input_schemas_area.append(f'{self.operation_name}е схемы завершено успешно')
+            self.input_schemas_area.append(f'Схема {self.operation_name} успешно')
         elif code != 0:
             self.schemas_progressbar.setRange(0, 1)
-            self.input_schemas_area.append(f'Ошибка при {self.operation_name}и схемы')
+            self.input_schemas_area.append(f'Ошибка. Схема не {self.operation_name}')
             self.msg_window(text)
-    
+
     def extract_vars(self, output_data):
         """
         :param output_data: данные из потока stdout, stderr
@@ -714,7 +722,7 @@ class Window(QMainWindow):
         """
         data = output_data.strip()
         return data
-    
+
     def creating_schemas(self):
         """
         :return: создать схемы
@@ -751,10 +759,11 @@ class Window(QMainWindow):
                                                                         sysdba_password, name, identified, pdb_name)
                         self.input_schemas_area.append(f'Начато создание схемы {name}')
                         self.job.execute(oracle_string, parsers=[(self.extract_vars, "result")])
-                        self.operation_name = 'создани'
+                        self.operation_name = 'создана'
                 else:
-                    logger.warning('Не найдены отмеченные чекбоксами схемы')
-                    message_text = 'Не найдены отмеченные чекбоксами схемы'
+                    error_message = 'Не найдены отмеченные чекбоксами схемы'
+                    logger.warning(error_message)
+                    message_text = error_message
                     self.msg_window(message_text)
             else:
                 logger.warning('Не заполнены все обязательные поля. Невозможно cоздать новые схемы')
@@ -771,7 +780,7 @@ class Window(QMainWindow):
                 self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
-    
+
     def import_dumps_process_finished(self):
         """
         :return: отлавливаем сигнал о завершении процесса
@@ -786,7 +795,7 @@ class Window(QMainWindow):
             self.schemas_progressbar.setRange(0, 1)
             logger.info('Процесс завершен без ошибок')
             self.compile_view_and_options(self.name, self.password)
-    
+
     def import_from_dumps_to_schemas(self):
         """
         :return: импорт из дампа выбранных схем
@@ -818,8 +827,9 @@ class Window(QMainWindow):
                     message_text = 'Невозможно импортировать более одной схемы одновременно'
                     self.msg_window(message_text)
                 else:
-                    logger.warning('Не найдены отмеченные чекбоксами схемы')
-                    message_text = 'Не найдены отмеченные чекбоксами схемы'
+                    error_message = 'Не найдены отмеченные чекбоксами схемы'
+                    logger.warning(error_message)
+                    message_text = error_message
                     self.msg_window(message_text)
             else:
                 logger.warning('Не заполнены все обязательные поля. Невозможно импортировать из дампа')
@@ -832,7 +842,7 @@ class Window(QMainWindow):
                 self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
-    
+
     def compile_view_and_options(self, name, identified):
         """
         :param name: имя схемы, на которой будет проведена компиляция
@@ -842,7 +852,7 @@ class Window(QMainWindow):
         connection_string = self.line_main_connect.text()
         bd_name = self.list_pdb.currentText().upper()
         connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-        if name == '' and identified == '':
+        if name == '' or identified == '':
             logger.error('Компиляция схем невозможна из-за ошибки - не переданы имя и пароль схемы')
         else:
             self.process = QProcess()
@@ -853,7 +863,7 @@ class Window(QMainWindow):
                                                                                      bd_name, name, identified)
             self.process.startCommand(enabled_schemes_options_string)
             logger.info(f'Начато включение опций и перекомпиляция view и функций для схемы {name}')
-    
+
     def export_schema_process_finished(self):
         """
         :return: отлавливаем сигнал о завершении процесса
@@ -867,7 +877,7 @@ class Window(QMainWindow):
             self.process = None
             self.schemas_progressbar.setRange(0, 1)
             logger.info('Процесс завершен без ошибок')
-    
+
     def export_from_schema_to_dump(self):
         """
         :return: экспорта дампа из выбранной схемы
@@ -887,7 +897,8 @@ class Window(QMainWindow):
                     identified = eval('self.input_' + checked_schemas[0] + '_pass.text()')
                     dump_for_schema_path = pathlib.Path.cwd().joinpath(f'{name}.dmp')
                     connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                    oracle_string = get_string_export_oracle_scheme(connection_string_without_orcl, pdb_name, name, identified, dump_for_schema_path)
+                    oracle_string = get_string_export_oracle_scheme(connection_string_without_orcl, pdb_name, name,
+                                                                    identified, dump_for_schema_path)
                     self.process.startCommand(oracle_string)
                     logger.info(f'Начат процесс экспорта схемы {name} в дамп')
                 elif len(checked_schemas) > 1:
@@ -895,8 +906,9 @@ class Window(QMainWindow):
                     message_text = 'Невозможно экспортировать более одной схемы одновременно'
                     self.msg_window(message_text)
                 else:
-                    logger.warning('Не найдены отмеченные чекбоксами схемы')
-                    message_text = 'Не найдены отмеченные чекбоксами схемы'
+                    error_message = 'Не найдены отмеченные чекбоксами схемы'
+                    logger.warning(error_message)
+                    message_text = error_message
                     self.msg_window(message_text)
             else:
                 logger.warning('Не заполнены все обязательные поля. Невозможно импортировать из дампа')
@@ -909,7 +921,7 @@ class Window(QMainWindow):
                 self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
-    
+
     def deleting_schemas(self):
         """
         :return: удаление выбранных схем
@@ -944,10 +956,11 @@ class Window(QMainWindow):
                                                                         sysdba_password, pdb_name, name)
                         self.input_schemas_area.append(f'Начато создание схемы {name}')
                         self.job.execute(oracle_string, parsers=[(self.extract_vars, "result")])
-                        self.operation_name = 'удалени'
+                        self.operation_name = 'удалена'
                 else:
-                    logger.warning('Не найдены отмеченные чекбоксами схемы')
-                    message_text = 'Проверьте отмечены ли схемы'
+                    error_message = 'Не найдены отмеченные чекбоксами схемы'
+                    logger.warning(error_message)
+                    message_text = error_message
                     self.msg_window(message_text)
             else:
                 logger.warning('Не заполнены все обязательные поля. Невозможно удалить схемы')
@@ -964,7 +977,7 @@ class Window(QMainWindow):
                 self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
-    
+
     def handle_stdout_check_last_login(self):
         """
         :return: отлавливаем поток данных из запущенной через QProcess программы
@@ -986,7 +999,7 @@ class Window(QMainWindow):
             with open(self.full_path_to_file_username, 'a') as file:
                 file.write(output)
             return self.process.exitCode()
-    
+
     def check_last_login_process_finished(self):
         """
         :return: отлавливаем сигнал о завершении процесса
@@ -1021,7 +1034,7 @@ class Window(QMainWindow):
                 except ValueError:
                     self.input_schemas_area.insertHtml(f"В схему {key} был выполнен вход {value}<br>")
             logger.info('Процесс завершен без ошибок')
-    
+
     def check_last_login(self):
         """
         :return: проверить последний вход пользователей, отмеченных чекбоксом
@@ -1060,13 +1073,13 @@ class Window(QMainWindow):
                 self.msg_window(message_text)
         else:
             logger.warning('Вызван новый процесс до завершения старого')
-    
+
     def sqlscripts_runner(self):
         pass
-    
+
     def fill_schemas_list(self):
         pass
-    
+
     def fn_checkbox_clicked_for_schemas(self, checked):
         """
         :param checked: принимаем статус чекбокса
@@ -1077,7 +1090,7 @@ class Window(QMainWindow):
             self.schemas[checkbox.name] = 1
         else:
             self.schemas[checkbox.name] = 0
-    
+
     def fn_set_path_for_dumps(self):
         """
         :return: устанавливаем путь для каждого дампа схемы
@@ -1087,7 +1100,7 @@ class Window(QMainWindow):
         for i in range(1, 6):
             if button is eval('self.btn_path_schema' + str(i)):
                 eval('self.path_schema' + str(i) + '.setText(get_dir[0])')
-    
+
     def get_directory(self):
         """
         :return: устанавливаем путь для директории скриптов и заполняем поле именами файлов формата .sql
@@ -1104,7 +1117,7 @@ class Window(QMainWindow):
         :return: передает в переменную текст, расположенный в строке row и 1 стролбце
         """
         self.pdb_name = self.table.item(row, 0).text()
-        
+
     def context(self, point, table):
         """
         :param point: координаты вызова меню
@@ -1122,7 +1135,7 @@ class Window(QMainWindow):
         else:
             pass
         menu.exec(table.mapToGlobal(point))
-        
+
     def closeEvent(self, event):
         """
         :param event: событие, которое можно принять или переопределить при закрытии
@@ -1164,7 +1177,7 @@ class Window(QMainWindow):
         delete_temp_directory()
         logger.info('Пользовательские настройки сохранены')
         logger.info(f'Файл {__file__} закрыт')
-        
+
     def initialization_settings(self):
         """
         :return: заполнение полей из настроек
@@ -1203,7 +1216,7 @@ class Window(QMainWindow):
         except TypeError:
             logger.info('Установлены размеры окна по умолчанию')
         logger.info('Файл с пользовательскими настройками проинициализирован')
-    
+
     def header_layout(self):
         """
         :return: добавление виджетов в верхнюю часть интерфейса на главном окне
@@ -1232,7 +1245,7 @@ class Window(QMainWindow):
         self.top_grid_layout.addWidget(self.label_pdb, 2, 0)
         self.top_grid_layout.addWidget(self.list_pdb, 2, 1)
         self.top_grid_layout.addWidget(self.btn_current_pdb, 2, 2)
-    
+
     def pdb_tab(self):
         """
         :return: добавление виджетов на вкладку с pdb
@@ -1255,14 +1268,14 @@ class Window(QMainWindow):
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.customContextMenuRequested.connect(lambda pos, table=self.table: self.context(pos, table))
-        self.table.setItemDelegate(ColorDelegate())
+        self.table.setItemDelegate(InitialDelegate(2, self.table))
         self.tab_control.layout.addWidget(self.input_newpdb, 0, 0)
         self.tab_control.layout.addWidget(self.btn_clone_pdb, 0, 1)
         self.tab_control.layout.addWidget(self.input_regexp, 1, 0)
         self.tab_control.layout.addWidget(self.table, 2, 0, 1, 2)
         self.tab_control.layout.addWidget(self.pdb_progressbar, 3, 0, 1, 2)
         self.tab_control.setLayout(self.tab_control.layout)
-    
+
     def schemas_tab(self):
         """
         :return: добавление виджетов на вкладку с схемами
@@ -1441,4 +1454,3 @@ if __name__ == '__main__':
     win = Window()
     win.show()
     sys.exit(app.exec())
-    
