@@ -4,7 +4,9 @@ import shutil
 import pathlib
 import requests
 import re
+import os
 from myLogging import logger
+from datetime import datetime
 
 
 TEMP_DIRECTORY = r'temp'
@@ -37,6 +39,9 @@ def create_file_for_pdb(filename):
     :return: создать файл, в который будут записаны результаты для PDB
     """
     directory_name = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
+    if not pathlib.Path.exists(pathlib.Path.cwd().joinpath(directory_name)):
+        pathlib.Path.cwd().joinpath(directory_name).mkdir(parents=True, exist_ok=True)
+    directory_name = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
     file_name = directory_name.joinpath(filename)
     with open(file_name, 'w'):
         pass
@@ -66,21 +71,58 @@ def get_sql_filenames(directory_path):
     return files
 
 
-def filter_function(nested_list, regular_expression_pattern):
+def make_shortname(username):
     """
-    :param nested_list: вложенный список, полученный из бд
-    :param regular_expression_pattern: регуляорное выражение, по которому идет фильтрация
-    :return: отфильтрованный список
+    :return: получение сокращенного имени из имени пользователя для шаблонизации при удалении и клонировании PDB
     """
-    if regular_expression_pattern == '':
-        return nested_list
-    else:
-        exit_list = []
-        re_pattern = re.compile(regular_expression_pattern)
-        for i in nested_list:
-            if re_pattern.search(i[0]):
-                exit_list.append(i)
-        return exit_list
+    username = re.sub('[^a-zA-Z]', '', username).upper()
+    if not None:
+        return username[0] + username[-2] + username[-1]
+
+
+def get_date_exe_file(directory_path):
+    """
+    :return: получение даты и времени exe файла
+    """
+    path = pathlib.Path(directory_path).glob('*.exe')
+    for i in path:
+        try:
+            file_date = datetime.fromtimestamp(os.path.getmtime(i))
+        except:
+            file_date = None
+    return file_date
+
+
+def check_empty_fields(**kwargs):
+    """
+    :param kwargs: словарь с ключем и названием полей основного окна
+    :return: сообщение, в котором перечислены незаполненные поля
+    """
+    message_list = ['Не заполнены следующие обязательные поля:\n']
+    empty_fields_list = []
+    for field_name, field_value in kwargs.items():
+        if field_value == '':
+            empty_fields_list.append(field_name)
+    for i in empty_fields_list:
+        if i == 'connection_string':
+            message_list.append('-строка подключения к CDB\n')
+        elif i == 'sysdba_name':
+            message_list.append('-пользователь SYSDBA\n')
+        elif i == 'sysdba_password':
+            message_list.append('-пароль SYSDBA\n')
+        elif i == 'pdb_name':
+            message_list.append('-исходное имя PDB\n')
+        elif i == 'pdb_name_clone':
+            message_list.append('-имя новой PDB\n')
+        elif i == 'name':
+            message_list.append('-имя схемы\n')
+        elif i == 'identified':
+            message_list.append('-пароль для новой схемы\n')
+        elif i == 'dump_name':
+            message_list.append('-имя схемы из файла дампа\n')
+        elif i == 'dump_for_schema_path':
+            message_list.append('-путь к файлу дампа\n')
+    return ''.join(message_list)
 
 
 def get_string_show_pdbs(connection_string, sysdba_name, sysdba_password):
@@ -151,6 +193,25 @@ exit;
     return cmd
 
 
+def get_string_snapshot_clone_pdb(connection_string, sysdba_name, sysdba_password, pdb_name, pdb_name_cloned):
+    """
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param pdb_name: имя pdb, с которой клонируемся
+    :param pdb_name_cloned: новое имя pdb
+    :return: собирается строка подключения и sql запрос для отправки в subprocess
+    """
+    script = f"""set echo on;
+set serveroutput on size unlimited;
+execute pdb.clone_pdb_snapshot('{pdb_name}', '{pdb_name_cloned}');
+exit;
+    """
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    return cmd
+
+
 def get_string_make_pdb_writable(connection_string, sysdba_name, sysdba_password, pdb_name):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
@@ -202,6 +263,34 @@ exit;"""
     return cmd
 
 
+def get_string_for_cyrillic_sql_scripts(connection_string, pdb_name, schema_name, schema_password, sql_script_text):
+    """
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param pdb_name: имя PDB на которой будет проводиться sql скрипт
+    :param schema_name: имя схемы
+    :param schema_password: пароль от схемы
+    :param sql_script_text: sql скрипт, который будет проводиться
+    :return: строка подключения с sql скриптом
+    """
+    script_file = create_script_file(sql_script_text)
+    cmd = f'sqlplus.exe -s {schema_name}/{schema_password}@{connection_string}/{pdb_name} @{script_file} \n'
+    return cmd.encode()
+
+
+def get_string_for_sql_scripts(connection_string, pdb_name, schema_name, schema_password, sql_script_text):
+    """
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param pdb_name: имя PDB на которой будет проводиться sql скрипт
+    :param schema_name: имя схемы
+    :param schema_password: пароль от схемы
+    :param sql_script_text: sql скрипт, который будет проводиться
+    :return: строка подключения с sql скриптом
+    """
+    script_file = create_script_file(sql_script_text)
+    cmd = f'sqlplus.exe -s {schema_name}/{schema_password}@{connection_string}/{pdb_name} @{script_file}'
+    return cmd
+
+
 def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, schema_name, schema_password, pdb_name):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
@@ -214,6 +303,7 @@ def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_passw
     """
     script = f"""create user {schema_name} identified by {schema_password} default tablespace USERS temporary tablespace TEMP;
 grant CONNECT, RESOURCE, SELECT_ALL to {schema_name};
+grant DBA to {schema_name};
 grant FLASHBACK ANY TABLE,UNLIMITED TABLESPACE, CREATE ANY DIRECTORY, ALTER SESSION, SELECT ANY DICTIONARY to {schema_name};
 grant SELECT on V_$SESSION to {schema_name};
 grant SELECT on V_$LOCKED_OBJECT to {schema_name};
@@ -250,9 +340,27 @@ def get_string_show_oracle_users(connection_string, sysdba_name, sysdba_password
     """
     script = f"""column USERNAME format A40;
 alter session set NLS_DATE_FORMAT = 'YYYY.MM.DD HH24:MI:SS';
-set heading off
+set heading off;
 set linesize 60;
 select USERNAME, CREATED from dba_users where COMMON='NO';
+exit;
+"""
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string}/{pdb_name} as sysdba @{script_file}'
+    return cmd
+
+
+def get_string_oracle_users_name(connection_string, sysdba_name, sysdba_password, pdb_name):
+    """
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param pdb_name: имя pdb, в которой создана схема
+    :return: показывает созданные схемы
+    """
+    script = f"""set heading off;
+set feedback off;
+select username from dba_users where COMMON='NO' and username != 'PDBADMIN' order by username;
 exit;
 """
     script_file = create_script_file(script)
