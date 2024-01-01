@@ -1102,7 +1102,18 @@ class Window(QMainWindow):
             self.scripts_progressbar.setRange(0, 1)
             logger.info('Процесс завершен без ошибок')
 
-    def execute_sql_script(self, cmd):
+    def execute_sql_sqcript(self, cmd):
+        """
+        :param cmd: строка для запуска ПО вместе аргументами
+        :return: запускается программа и подключаются сигналы к слотам
+        """
+        self.process = QProcess()
+        self.process.readyReadStandardError.connect(self.sqlscripts_handle_stdout)  # сигнал об ошибках
+        self.process.readyReadStandardOutput.connect(self.sqlscripts_handle_stdout)  # сигнал во время работы
+        self.process.finished.connect(self.sqlscripts_process_finished)  # сигнал после завершения всех задач
+        self.process.startCommand(cmd)
+
+    def execute_cyrillic_sql_script(self, cmd):
         """
         :param cmd: строка для запуска ПО вместе аргументами
         :return: запускается программа и подключаются сигналы к слотам
@@ -1123,7 +1134,6 @@ class Window(QMainWindow):
         self.process.write(cmd)
         self.process.waitForBytesWritten()
         self.process.write('exit \n'.encode())
-        # self.process.startCommand(cmd)
 
     def sqlscripts_runner(self):
         """
@@ -1132,25 +1142,24 @@ class Window(QMainWindow):
         sql_script_name = self.list_scripts.currentText()
         connection_string = self.line_main_connect.text()
         schema_name = self.list_schemas_name.currentText().lower()
+        pdb_name = self.list_pdb.currentText().upper()
+        connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
         self.scripts_progressbar.setRange(0, 0)
-        # если будет кириллица, то другую функцию запускать
-        # execute_sql_script разбить на две функции - одна для кириллицы, другая для обычных
-        # сделать два словаря. Один со скриптами, где есть кириллица, другой - обычный
-        for key, value in self.sql_dict.items():
-            if key == sql_script_name and key == 'Установить подключение в настройках':
-                connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                pdb_name = self.list_pdb.currentText().upper()
-                sql_script = value.replace('{CONNECTION_WITH_PDB}', f'192.168.65.136:1521/{pdb_name}')
+        if sql_script_name == 'Установить подключение в настройках':
+            sql_script = self.sql_dict.get(sql_script_name).replace('{CONNECTION_WITH_PDB}', f'{connection_string_without_orcl}/{pdb_name}')
+            oracle_string = get_string_for_cyrillic_sql_scripts(connection_string_without_orcl, pdb_name, schema_name,
+                                                                schema_name, sql_script)
+            self.execute_sql_sqcript(oracle_string)
+        else:
+            sql_script = self.sql_dict.get(sql_script_name)
+            if sql_script_name == 'Убрать график смен':
+                oracle_string = get_string_for_cyrillic_sql_scripts(connection_string_without_orcl, pdb_name, schema_name,
+                                                                    schema_name, sql_script)
+                self.execute_sql_sqcript(oracle_string)
+            else:
                 oracle_string = get_string_for_sql_scripts(connection_string_without_orcl, pdb_name, schema_name,
                                                            schema_name, sql_script)
-                self.execute_sql_script(oracle_string)
-            elif key == sql_script_name:
-                connection_string_without_orcl = connection_string[:connection_string.rfind('/')]
-                pdb_name = self.list_pdb.currentText().upper()
-                sql_script = value
-                oracle_string = get_string_for_sql_scripts(connection_string_without_orcl, pdb_name, schema_name,
-                                                           schema_name, sql_script)
-                self.execute_sql_script(oracle_string)
+                self.execute_sql_sqcript(oracle_string)
 
     def handle_stdout_schemas_name_process_schemas(self):
         """

@@ -61,16 +61,6 @@ def delete_temp_directory():
             logger.error(f'Невозможно удалить директорию {TEMP_DIRECTORY} по причине {error}')
 
 
-def get_sql_filenames(directory_path):
-    """
-    :param directory_path: указывается путь, где будет начало поиска файлов
-    :return: выводится список файлов в директории, соответствующий формату .sql
-    """
-    path = pathlib.Path(directory_path).glob('*.sql')
-    files = [x.name for x in path if x.is_file()]
-    return files
-
-
 def make_shortname(username):
     """
     :return: получение сокращенного имени из имени пользователя для шаблонизации при удалении и клонировании PDB
@@ -245,21 +235,6 @@ exit;
 """
     script_file = create_script_file(script)
     cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
-    return cmd
-
-
-def get_string_check_oracle_connection(connection_string, sysdba_name, sysdba_password):
-    """
-    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
-    :param sysdba_name: логин пользователя SYSDBA
-    :param sysdba_password: пароль пользователя SYSDBA
-    :return: проверяется возможность подключения к pdb
-    """
-    script = f"""set heading off
-select 'CONNECTION SUCCESS' from dual;
-exit;"""
-    script_file = create_script_file(script)
-    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
     return cmd
 
 
