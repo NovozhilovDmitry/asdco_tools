@@ -5,6 +5,8 @@ import pathlib
 import requests
 import re
 import os
+import json
+import urllib3
 from myLogging import logger
 from datetime import datetime
 
@@ -33,6 +35,40 @@ def create_script_file(script):
     return file_name
 
 
+def create_file(filename):
+    """
+    :param filename: имя файла
+    :return: создается файл, если отсутсвует в директории
+    """
+    file_name = pathlib.Path.cwd().joinpath(filename)
+    if not pathlib.Path.exists(file_name):
+        with open(file_name, 'w'):
+            pass
+        logger.info('Файл успешно создан')
+    return file_name
+
+
+def write_data_to_json_file(full_path, json_data):
+    """
+    :param full_path: полный путь к файлу
+    :param json_data: питоновская структура, которая будет записана в json файл
+    :return: записанные данные
+    """
+    with open(full_path, 'w') as file:
+        json.dump(json_data, file, ensure_ascii=False)
+    logger.info(f'Данные успешно записаны в файл {full_path}')
+
+
+def get_data_from_json_file(full_path):
+    try:
+        with open(full_path, 'r') as file:
+            data = json.load(file)
+    except:
+        data = {}
+    logger.info(f'Данные успешно считаны из файла {full_path}')
+    return data
+
+
 def create_file_for_pdb(filename):
     """
     :filename: имя создаваемого файла
@@ -41,7 +77,6 @@ def create_file_for_pdb(filename):
     directory_name = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
     if not pathlib.Path.exists(pathlib.Path.cwd().joinpath(directory_name)):
         pathlib.Path.cwd().joinpath(directory_name).mkdir(parents=True, exist_ok=True)
-    directory_name = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
     file_name = directory_name.joinpath(filename)
     with open(file_name, 'w'):
         pass
@@ -50,7 +85,7 @@ def create_file_for_pdb(filename):
 
 def delete_temp_directory():
     """
-    :return: при штатном выходе из программы удаляется врменный каталог temp
+    :return: при штатном выходе из программы удаляется врменная директория temp
     """
     cwd_temp_path = pathlib.Path.cwd().joinpath(TEMP_DIRECTORY)
     if pathlib.Path.exists(cwd_temp_path):
@@ -127,11 +162,68 @@ set colsep "|"
 set pagesize 1000
 set linesize 1000
 set heading off
-column name format a25
 set NUMWIDTH 11
 select name, to_char(creation_time, 'dd.mm.yyyy') as creation_time, open_mode, total_size
 from v$pdbs
 where name not in ('ASDCOEMPTY_ETALON', 'PDB$SEED')
+order by name;
+exit;
+    """
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} as sysdba @{script_file}'
+    logger.info(f'Подключение к {connection_string} под пользователем {sysdba_name}')
+    return cmd
+
+
+def get_string_show_versions(connection_string, sysdba_name, sysdba_password):
+    """
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :return: собирается строка подключения и sql запрос для отправки в subprocess
+    """
+    script = f"""set feedback off
+set colsep "|"
+set pagesize 1000
+set linesize 1000
+set heading off
+select (select decode(nv_patch_number, null, server_version, server_version || '.' || nv_patch_number)
+        from credit1.versions where server_version = (select max(server_version) from credit1.versions) and d_setup = (select max(d_setup) from credit1.versions)) as credit_version,
+        (select decode(nv_patch_number, null, server_version, server_version || '.' || nv_patch_number) as deposit_version
+        from deposit1.versions where server_version = (select max(server_version) from deposit1.versions) and d_setup = (select max(d_setup) from deposit1.versions)) as deposit_version,
+        (select to_char(credit1.getoperdate, 'dd.mm.yyyy') from dual) as credit_od,
+        (select to_char(deposit1.getoperdate, 'dd.mm.yyyy') from dual) as deposit_od
+from dual;
+exit;
+    """
+    script_file = create_script_file(script)
+    cmd = f'sqlplus.exe -s {sysdba_name}/{sysdba_password}@{connection_string} @{script_file}'
+    logger.info(f'Подключение к {connection_string} под пользователем {sysdba_name}')
+    return cmd
+
+
+def get_string_alternative_show_pdbs(connection_string, sysdba_name, sysdba_password, pdb_names):
+    """
+    :param sysdba_name: логин пользователя SYSDBA
+    :param sysdba_password: пароль пользователя SYSDBA
+    :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
+    :param pdb_names: список (строка) с именами pdb для получения фильтрованного списка pdb в базе
+    :return: собирается строка подключения и sql запрос для отправки в subprocess
+    """
+    if type(pdb_names) == list:
+        temp_list = [str(i).upper() for i in pdb_names]
+        filtered_names = "|".join(temp_list)
+    else:
+        filtered_names = str(pdb_names).upper()
+    script = f"""set feedback off
+set colsep "|"
+set pagesize 1000
+set linesize 1000
+set heading off
+set NUMWIDTH 11
+select name, to_char(creation_time, 'dd.mm.yyyy') as creation_time, open_mode, total_size
+from v$pdbs
+where regexp_like (name, '{filtered_names}')
 order by name;
 exit;
     """
@@ -266,7 +358,8 @@ def get_string_for_sql_scripts(connection_string, pdb_name, schema_name, schema_
     return cmd
 
 
-def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, schema_name, schema_password, pdb_name):
+def get_string_create_oracle_schema(connection_string, sysdba_name, sysdba_password, schema_name, schema_password,
+                                    pdb_name):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
     :param sysdba_name: логин пользователя SYSDBA
@@ -343,7 +436,8 @@ exit;
     return cmd
 
 
-def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, schema_password, schema_name_in_dump, schema_dump_file):
+def get_string_import_oracle_schema(connection_string, pdb_name, schema_name, schema_password, schema_name_in_dump,
+                                    schema_dump_file):
     """
     :param connection_string: строка подключения к базе данных - только ip и порт (сокет)
     :param pdb_name: имя pdb, к которой подключаемся для импорта
@@ -491,12 +585,13 @@ exit;"""
 
 
 def get_total_space_and_used_space_from_zabbix():
+    urllib3.disable_warnings()
     headers = {'Content-Type': 'application/json'}
-    data = requests.post('http://192.168.65.170/api_jsonrpc.php', headers=headers,
+    data = requests.post('https://192.168.65.170/api_jsonrpc.php', headers=headers,
                          json={"jsonrpc": "2.0", "method": "history.get",
                                "params": {"history": 3, "hostids": ["11185"], "itemids": ["108285", "108288"],
                                           "output": "extend", "limit": 2, "sortfield": "clock", "sortorder": "DESC"},
-                               "auth": "fe57381c8834819d9ca7f99f644c8dc30b3e9ec6956bdb2c57efa9af29127032", "id": 1})
+                               "auth": "fe57381c8834819d9ca7f99f644c8dc30b3e9ec6956bdb2c57efa9af29127032", "id": 1}, verify=False)
     data_dict = data.json()
     line_for_print = data_dict['result']
     temp_dict = {'used_space': 0, 'total_space': 0}

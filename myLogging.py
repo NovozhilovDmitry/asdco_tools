@@ -3,7 +3,7 @@ import getpass
 
 current_username = getpass.getuser()
 LOGGING_LOG_FILE = f'{current_username}-log-file.log'
-LOGGING_FORMATTER_STRING = '%(asctime)s - ' + current_username + ' - %(name)s - %(levelname)s - %(message)s'
+LOGGING_FORMATTER_STRING = '%(asctime)s - ' + current_username + ' - %(levelname)s - %(message)s'
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 handler = logging.FileHandler(LOGGING_LOG_FILE, mode='a')

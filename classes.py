@@ -1,10 +1,10 @@
-from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtCore import Qt, QProcess, QObject, pyqtSignal, pyqtSlot, QRunnable, QAbstractListModel
-from PyQt6.QtWidgets import QStyledItemDelegate, QMessageBox, QWidget, QPushButton, QGridLayout, QLineEdit, QLabel
 import traceback
 import uuid
 import re
 import sys
+from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtCore import Qt, QProcess, QObject, pyqtSignal, pyqtSlot, QRunnable, QAbstractListModel
+from PyQt6.QtWidgets import QStyledItemDelegate, QMessageBox, QWidget, QPushButton, QGridLayout, QLineEdit, QLabel
 
 
 DEFAULT_STATE = {
@@ -188,7 +188,7 @@ class SecondWindow(QWidget):
         new_pdb_name = QLabel('Новое имя PDB')
         self.input_pdb_name = QLineEdit()
         self.input_new_pdb_name = QLineEdit()
-        self.input_new_pdb_name.setMaxLength(21)
+        self.input_new_pdb_name.setMaxLength(23)
         self.btn_clone_pdb = QPushButton('Клонирование PDB')
         self.btn_clone_pdb.clicked.connect(self.clone_pdb)
         self.btn_clone_pdb.setStyleSheet('width: 250')
